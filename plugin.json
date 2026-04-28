@@ -1,0 +1,7 @@
+{
+  "id": "thymer-notes-management",
+  "name": "Notes Management",
+  "version": "1.0.0",
+  "description": "Bulk move notes and assign subpages from a native Thymer panel.",
+  "main": "notes-manager-plugin.js"
+}
