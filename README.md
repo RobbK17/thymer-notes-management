@@ -4,7 +4,15 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Version
 
-- **Current version:** `1.0.0`
+- **Current version:** `1.0.1`
+
+### What’s new in 1.0.1
+
+- **Tag rename (quick):** Use **⌘/Ctrl+Enter** for preview and **⌘/Ctrl+Shift+Enter** to apply from the Current or New tag fields (same idea as the original Tag Renamer). Buttons show the same shortcuts in their tooltips.
+- **Tag review — Review Grid:** Clearer **queue summary** (visible vs total rows, plus how many rows are default, skip, or override). **Preview** now matches the detailed “apply plan” style from the original (targets, skips, warnings). **Override** uses tag-index suggestions (focus or type; arrow keys when the list is open); a **gray ×** appears when there is an override so you can clear it in one click.
+- **Tag review — finding matches:** **Enter** on the source tag runs **Find matches**; clearing the source drops the stale queue. **Enter** on the default target re-runs **Find matches** when a source is set. Source field also offers the same style of tag suggestions as overrides.
+- **Tag review — after Rename:** The grid queue clears when a run finishes, the tag index refreshes in the background, and the results panel shows a fuller summary (including conflicts and rows that did not change).
+- **Group by tag:** Groups follow each row’s **actual matched tag**, with group actions (default/skip for a group), optional **open this record** from the title when grouped, and sorting aligned with the original behavior.
 
 ## Included Tools
 
@@ -49,10 +57,11 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 - `Current tag` (`#current-tag`) and `New tag` inputs.
 - Incremental suggestions for current tag.
+- **Keyboard:** **⌘/Ctrl+Enter** = preview, **⌘/Ctrl+Shift+Enter** = apply (from either tag field when you’re on this screen).
 - Matching options (collapsible):
   - Case-sensitive matching
   - Exclude choice/enum values from tag index
-  - Exclude collections by name or GUID
+  - Exclude collections via **Choose collections to exclude…** (checkbox list + filter); saved as comma-separated names or GUIDs (same as before)
 - Refresh index action with toast feedback.
 - Preview and apply workflows with detailed multi-line outputs.
 - Preview/apply outputs mirrored to review log.
@@ -61,13 +70,14 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 - Tag trace workflow with collapsible trace output and copy button.
 - Review Grid workflow:
-  - Source/default target inputs (`#source-tag`, `#default-target`)
-  - Queue build, preview, and apply
-  - Filter and sort controls, including **Group by tag**
-  - Sticky grid header + sticky first column
-  - Per-row `Default` / `Skip` / `Override tag` controls
-  - Header-level default/skip checkboxes for visible rows
-  - Queue meta shows **visible vs total** rows
+  - Source and default target (`#source-tag`, `#default-target`) with tag suggestions; **Enter** runs or re-runs **Find matches** where applicable; clearing the source clears the queue.
+  - Queue **build**, **preview** (detailed plan), and **rename** (apply).
+  - **Meta line:** visible vs total rows, plus counts for default / skip / override.
+  - Filter and sort, including **Group by tag** (per matched tag, with group default/skip and open-record from the title when grouped).
+  - Sticky grid header + sticky first column.
+  - Per-row **Default** / **Skip** / **Override** (suggestions from the tag index; **×** to clear an override).
+  - Header-level default/skip checkboxes for visible rows.
+- After a successful grid **Rename**, the queue clears and the tag index updates quietly; read the summary in the grid output area.
 - Review Grid preview/apply outputs mirrored to review log.
 
 ### Review Log + Status + Toasts

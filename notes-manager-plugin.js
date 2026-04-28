@@ -1,4 +1,4 @@
-const NOTES_MANAGER_VERSION = '1.0.0';
+const NOTES_MANAGER_VERSION = '1.0.1';
 
 class NotesManagerPanel {
     constructor(plugin) {
@@ -81,6 +81,9 @@ class NotesManagerPanel {
             reviewGridCollapsedSources: new Set(),
             reviewGridMeta: 'No queue built.',
             reviewGridOutput: '',
+            excludedPickerOpen: false,
+            excludedPickerFilter: '',
+            excludePickerCollections: [],
         };
     }
 
@@ -104,8 +107,12 @@ class NotesManagerPanel {
             '.nm-title{font-size:14px;font-weight:600;margin:0 0 10px}' +
             '.nm-text{font-size:13px;opacity:.7;line-height:1.45;margin:0 0 12px}' +
             '.nm-actions{display:flex;gap:8px;flex-wrap:wrap}' +
-            '.nm-btn{background:none;border:1px solid color-mix(in srgb,var(--sidebar-border-color) 55%, #ffffff 45%);outline:1px solid color-mix(in srgb,var(--sidebar-border-color) 35%, #ffffff 65%);outline-offset:0;color:inherit;cursor:pointer;font-size:13px;font-weight:500;padding:7px 12px;border-radius:var(--ed-radius-normal);transition:opacity .1s,background .1s,border-color .1s,outline-color .1s}' +
-            '.nm-btn:hover{opacity:1;background:var(--cards-hover-bg)}' +
+            '.nm-btn{background:color-mix(in srgb,var(--cards-bg) 70%, var(--input-bg-color) 30%);border:2px solid color-mix(in srgb,var(--sidebar-border-color) 60%, var(--input-text-color,#ffffff) 40%);color:inherit;cursor:pointer;font-size:13px;font-weight:600;padding:7px 12px;border-radius:var(--ed-radius-normal);box-shadow:0 2px 6px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.08);transition:background .1s,border-color .1s,box-shadow .1s,transform .05s}' +
+            '.nm-btn:hover{background:color-mix(in srgb,var(--cards-hover-bg) 55%, var(--input-bg-color) 45%);border-color:color-mix(in srgb,var(--sidebar-border-color) 42%, var(--input-text-color,#ffffff) 58%);box-shadow:0 4px 10px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.1)}' +
+            '.nm-btn:active{transform:translateY(1px);box-shadow:0 2px 4px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.06)}' +
+            '.nm-btn:focus-visible{outline:2px solid var(--ed-button-primary-bg,#4c8dff);outline-offset:2px}' +
+            '.nm-btn:disabled{opacity:.55;cursor:not-allowed;box-shadow:none}' +
+            '.nm-btn--secondary{background:color-mix(in srgb,var(--cards-bg) 78%, var(--input-bg-color) 22%)}' +
             '.nm-status{font-size:12px;opacity:.7;padding:4px 2px;white-space:pre-line}' +
             '.nm-field-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}' +
             '.nm-field{display:flex;flex-direction:column;gap:6px}' +
@@ -135,6 +142,12 @@ class NotesManagerPanel {
             '.nm-rg-table tbody tr:hover td{background:var(--cards-hover-bg)}' +
             '.nm-rg-table tbody tr:hover td:first-child{background:var(--cards-hover-bg)}' +
             '.nm-rg-table tr.nm-rg-group-row td:first-child{position:static;left:auto;z-index:auto;background:transparent;box-shadow:none;border-right:none}' +
+            '.nm-rg-title-open{cursor:pointer;text-decoration:underline;text-decoration-color:color-mix(in srgb,currentcolor 35%,transparent);text-underline-offset:2px}' +
+            '.nm-rg-source-host,.nm-rg-override-wrap{position:relative}' +
+            '.nm-rg-suggest{position:absolute;left:0;right:0;top:calc(100% + 2px);max-height:200px;overflow:auto;background:var(--cards-bg);border:1px solid var(--cards-border-color);border-radius:var(--ed-radius-block);z-index:45;display:none;box-shadow:var(--color-shadow-cards)}' +
+            '.nm-rg-suggest-row{display:block;width:100%;text-align:left;background:none;border:none;color:inherit;cursor:pointer;padding:8px 10px;font-size:13px;border-bottom:1px solid var(--cards-border-color)}' +
+            '.nm-rg-suggest-row:last-child{border-bottom:none}' +
+            '.nm-rg-suggest-row:hover,.nm-rg-suggest-row.nm-rg-suggest-row--active{background:var(--cards-hover-bg)}' +
             '.nm-status-ok{color:var(--ed-success-color,#2c8a2c)}' +
             '.nm-status-warn{color:var(--ed-warning-color,#b07b00)}' +
             '.nm-status-ico-row{display:inline-flex;align-items:center;gap:6px;vertical-align:middle}' +
@@ -148,6 +161,13 @@ class NotesManagerPanel {
             '.nm-parent-opt:hover{background:var(--cards-hover-bg)}' +
             '.nm-parent-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:2;background:none;border:none;cursor:pointer;color:var(--ed-gray-text);font-size:15px;line-height:1;opacity:.7;padding:2px 4px;border-radius:4px}' +
             '.nm-parent-clear:hover{opacity:1;background:var(--cards-hover-bg)}' +
+            '.nm-exclude-picker-host{position:relative;width:100%}' +
+            '.nm-exclude-col-wrap{position:relative;width:100%}' +
+            '.nm-exclude-col-wrap .nm-input{padding-right:28px}' +
+            '.nm-exclude-picker-panel{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:35;max-height:260px;overflow:auto;background:var(--cards-bg);border:1px solid var(--cards-border-color);border-radius:var(--ed-radius-block);box-shadow:var(--color-shadow-cards);padding:8px}' +
+            '.nm-exclude-picker-row{display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--cards-border-color);cursor:pointer}' +
+            '.nm-exclude-picker-row:last-child{border-bottom:none}' +
+            '.nm-exclude-picker-row:hover{background:var(--cards-hover-bg)}' +
             '.nm-review{margin-top:12px;border-top:1px dashed var(--cards-border-color);padding-top:10px}' +
             '.nm-review-head{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer}' +
             '.nm-review-title{font-size:13px;font-weight:600;opacity:.75}' +
@@ -161,7 +181,7 @@ class NotesManagerPanel {
             '.nm-adv-body{margin-top:8px}' +
             '@media(max-width:700px){.nm-field-grid{grid-template-columns:1fr}}'
         );
-        this.plugin.ui.addCommandPaletteCommand({ label: 'Open Notes Manager', icon: 'list-tree', onSelected: () => this._openPanel('home') });
+        this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Open', icon: 'list-tree', onSelected: () => this._openPanel('home') });
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Bulk move notes', icon: 'list-tree', onSelected: () => this._openPanel('bulk-move') });
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Assign subpages', icon: 'list-tree', onSelected: () => this._openPanel('assign-parent') });
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Tag rename (quick)', icon: 'list-tree', onSelected: () => this._openPanel('tag-rename') });
@@ -211,6 +231,99 @@ class NotesManagerPanel {
         return `<div class="nm-menu-wrap"><div class="nm-menu-trigger"><button class="nm-hamburger"><i class="ti ti-menu-2"></i></button><span class="nm-header-crumb">${breadcrumb}</span></div><div class="nm-dropdown" hidden><button class="nm-dropdown-item" data-action="set-mode" data-mode="home">Home</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="bulk-move">Bulk move notes</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button></div></div>`;
     }
 
+    _statusHTML() {
+        return this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : '';
+    }
+
+    _sharedTailHTML() {
+        return `${this._buildReviewLogSection()}${this._statusHTML()}`;
+    }
+
+    _tagAdvancedState(st) {
+        const bits = [];
+        if (!st.caseSensitive) bits.push('Case-insensitive');
+        if (!st.excludeChoiceValues) bits.push('Choice included');
+        const excludedCount = this._parseExcludedCollections(st.excludedCollectionsRaw).length;
+        if (excludedCount > 0) bits.push(`${excludedCount} excluded`);
+        return bits.length ? bits.join(', ') : 'Defaults';
+    }
+
+    _collectionExcludedByTokens(coll, tokens) {
+        const guid = String(coll?.guid || '').trim();
+        const name = String(coll?.name || '').trim().toLowerCase();
+        return tokens.some(t => {
+            const tr = String(t || '').trim();
+            if (!tr) return false;
+            if (tr === guid) return true;
+            return tr.toLowerCase() === name;
+        });
+    }
+
+    _buildExcludedCollectionsFieldHTML() {
+        const st = this._tagState;
+        const tokens = this._parseExcludedCollections(st.excludedCollectionsRaw);
+        const filtered = this._filteredExcludePickerCollections();
+        const open = !!st.excludedPickerOpen;
+        const pickerHtml = open
+            ? `<div class="nm-exclude-picker-panel">
+<input class="nm-input nm-tr-exclude-picker-filter" type="text" value="${this._escape(st.excludedPickerFilter || '')}" placeholder="Filter collections…">
+<div class="nm-actions" style="margin-top:8px;margin-bottom:8px;">
+<button type="button" class="nm-btn nm-btn--secondary" data-action="tr-exclude-select-filtered">Select filtered</button>
+<button type="button" class="nm-btn nm-btn--secondary" data-action="tr-exclude-clear-all">Clear all</button>
+</div>
+${filtered.length ? filtered.map(c => {
+                const checked = this._collectionExcludedByTokens(c, tokens) ? ' checked' : '';
+                return `<label class="nm-exclude-picker-row"><input type="checkbox" class="nm-tr-exclude-col-cb" data-guid="${this._escape(c.guid)}"${checked}><span>${this._escape(c.name || '(untitled)')}</span><span class="nm-muted" style="margin-left:auto;font-size:11px;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${this._escape(c.guid)}">${this._escape(c.guid)}</span></label>`;
+            }).join('') : '<div class="nm-muted" style="padding:8px">No collections match filter.</div>'}
+</div>`
+            : '';
+        return `<div class="nm-field" style="grid-column:1/-1">
+<label class="nm-label">Exclude collections</label>
+<div class="nm-exclude-picker-host">
+<div class="nm-exclude-col-wrap nm-input-wrap">
+<input class="nm-input nm-tr-excluded-collections" type="text" value="${this._escape(st.excludedCollectionsRaw)}" placeholder="None — choose collections below" readonly>
+${st.excludedCollectionsRaw ? '<button type="button" class="nm-parent-clear" data-action="tr-exclude-clear-all" title="Clear exclusions">×</button>' : ''}
+</div>
+<button type="button" class="nm-btn nm-btn--secondary" data-action="tr-exclude-picker-toggle" style="margin-top:8px;width:100%">${open ? 'Close collection picker' : 'Choose collections to exclude…'}</button>
+${pickerHtml}
+</div>
+<p class="nm-muted" style="margin-top:6px;font-size:12px">Saved as comma-separated collection names or GUIDs (same as before).</p>
+</div>`;
+    }
+
+    _filteredExcludePickerCollections() {
+        const st = this._tagState;
+        const colls = Array.isArray(st.excludePickerCollections) ? st.excludePickerCollections : [];
+        const f = (st.excludedPickerFilter || '').toLowerCase().trim();
+        if (!f) return colls;
+        return colls.filter(c => (c.name || '').toLowerCase().includes(f) || (c.guid || '').toLowerCase().includes(f));
+    }
+
+    async _loadExcludePickerCollections() {
+        const collections = (await this.plugin.data.getAllCollections?.()) || [];
+        this._tagState.excludePickerCollections = collections
+            .filter(c => this.isUserCollection(c))
+            .map(c => ({ guid: String(c.getGuid?.() || '').trim(), name: String(c.getName?.() || 'Untitled').trim() }))
+            .filter(c => !!c.guid)
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    _commitExcludedCollectionsRaw(raw) {
+        this._tagState.excludedCollectionsRaw = String(raw || '');
+        this._settings.tagExcludedCollectionsDefault = this._tagState.excludedCollectionsRaw;
+        this._saveSettings();
+    }
+
+    async _excludeSelectFilteredCollections() {
+        const tokens = [...this._parseExcludedCollections(this._tagState.excludedCollectionsRaw)];
+        const filtered = this._filteredExcludePickerCollections();
+        for (const c of filtered) {
+            if (!this._collectionExcludedByTokens(c, tokens)) tokens.push((c.name || '').trim() || c.guid);
+        }
+        this._commitExcludedCollectionsRaw(tokens.join(', '));
+        await this._refreshTagIndex();
+    }
+
     _buildReviewLogSection() {
         const collapsed = !!this._settings.reviewLogCollapsed;
         const recent = this._activityLog.slice(-100).reverse();
@@ -218,7 +331,7 @@ class NotesManagerPanel {
     }
 
     _buildHomeHTML() {
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Notes Manager</p><p class="nm-text">Bulk Move, Assign Subpages, and Tag Rename share preview/apply and row-level review logging.</p><div class="nm-actions"><button class="nm-btn" data-action="set-mode" data-mode="bulk-move">Bulk move notes</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button></div></div>${this._buildReviewLogSection()}${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : ''}</div>`;
+        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Notes Manager</p><p class="nm-text">Bulk Move, Assign Subpages, and Tag Rename share preview/apply and row-level review logging.</p><div class="nm-actions"><button class="nm-btn" data-action="set-mode" data-mode="bulk-move">Bulk move notes</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button></div></div>${this._sharedTailHTML()}</div>`;
     }
 
     _buildBulkMoveHTML() {
@@ -229,7 +342,7 @@ class NotesManagerPanel {
         const sourceOpts = st.collections.map(c => `<option value="${this._escape(c.guid)}"${st.sourceGuid === c.guid ? ' selected' : ''}>${this._escape(c.name)}</option>`).join('');
         const targetOpts = st.collections.map(c => `<option value="${this._escape(c.guid)}"${st.targetGuid === c.guid ? ' selected' : ''}>${this._escape(c.name)}</option>`).join('');
         const rows = st.filtered.map(rec => `<div class="nm-row"><input type="checkbox" data-action="bm-toggle" data-guid="${this._escape(rec.guid)}"${st.selectedGuids.has(rec.guid) ? ' checked' : ''}><span class="nm-row-name" title="${this._escape(rec.name)}">${this._escape(rec.name)}</span><span class="nm-row-meta">${this._escape(rec.guid)}</span></div>`).join('');
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Bulk Move Notes</p><p class="nm-text">Preview first, then apply. Row-level results are logged.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bm-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Target collection</label><select class="nm-select nm-bm-target">${targetOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bm-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bm-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline"><button class="nm-btn nm-btn--secondary" data-action="bm-select-all">Select all</button><button class="nm-btn nm-btn--secondary" data-action="bm-select-none">Select none</button><span class="nm-pill">${st.filtered.length} records</span><span class="nm-pill">${st.selectedGuids.size} selected</span></div><span class="nm-muted">${st.loading ? 'Loading records...' : ''}</span></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bm-preview">Preview</button><button class="nm-btn" data-action="run-bulk-move"${st.running ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="bm-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._buildReviewLogSection()}${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : ''}</div>`;
+        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Bulk Move Notes</p><p class="nm-text">Preview first, then apply. Row-level results are logged.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bm-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Target collection</label><select class="nm-select nm-bm-target">${targetOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bm-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bm-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline"><button class="nm-btn nm-btn--secondary" data-action="bm-select-all">Select all</button><button class="nm-btn nm-btn--secondary" data-action="bm-select-none">Select none</button><span class="nm-pill">${st.filtered.length} records</span><span class="nm-pill">${st.selectedGuids.size} selected</span></div><span class="nm-muted">${st.loading ? 'Loading records...' : ''}</span></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bm-preview">Preview</button><button class="nm-btn" data-action="run-bulk-move"${st.running ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="bm-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._sharedTailHTML()}</div>`;
     }
 
     _buildAssignParentHTML() {
@@ -238,19 +351,14 @@ class NotesManagerPanel {
         const visibleRows = st.rows.filter(r => this._assignRowVisible(r));
         const allVisibleChecked = visibleRows.length > 0 && visibleRows.every(r => r.checked);
         const selectedCount = st.rows.filter(r => r.checked).length;
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Assign Subpages</p><p class="nm-text">Preview assign/unassign actions before applying.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Parent note</label><div class="nm-parent-search-wrap nm-input-wrap"><input class="nm-input nm-ap-parent-search" type="text" value="${this._escape(st.parentQuery)}" placeholder="Type to search parent...">${st.parentQuery ? '<button class="nm-parent-clear" data-action="ap-parent-clear" title="Clear parent">×</button>' : ''}${parentHits.length ? `<div class="nm-parent-list">${parentHits.map(r => `<button class="nm-parent-opt" data-action="ap-parent-pick" data-guid="${this._escape(r.guid)}">${this._escape(r.fullTitle)}</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">Filter children</label><div class="nm-input-wrap"><input class="nm-input nm-ap-filter" type="text" value="${this._escape(st.filterText)}" placeholder="Filter by title...">${st.filterText ? '<button class="nm-parent-clear" data-action="ap-filter-clear" title="Clear filter">×</button>' : ''}</div></div></div><div class="nm-list-head"><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-all"${allVisibleChecked ? ' checked' : ''}> <span class="nm-muted">All visible</span></label><span class="nm-pill">${selectedCount} selected</span></div><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-hide-childof"${st.hideChildOfRows ? ' checked' : ''}> <span class="nm-muted">Hide child of:</span></label></div></div><div class="nm-table-wrap"><table class="nm-table"><thead><tr><th style="width:42px"></th><th>Title</th><th>Status</th></tr></thead><tbody>${visibleRows.map(r => `<tr><td><input type="checkbox" data-action="ap-toggle" data-guid="${this._escape(r.guid)}"${r.checked ? ' checked' : ''}></td><td>${this._escape(r.fullTitle)}</td><td>${this._assignStatusHtml(r)}</td></tr>`).join('') || '<tr><td colspan="3">No rows match.</td></tr>'}</tbody></table></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="ap-preview">Preview</button><button class="nm-btn" data-action="run-assign-parent"${(st.running || !st.parentGuid) ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._buildReviewLogSection()}${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : ''}</div>`;
+        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Assign Subpages</p><p class="nm-text">Preview assign/unassign actions before applying.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Parent note</label><div class="nm-parent-search-wrap nm-input-wrap"><input class="nm-input nm-ap-parent-search" type="text" value="${this._escape(st.parentQuery)}" placeholder="Type to search parent...">${st.parentQuery ? '<button class="nm-parent-clear" data-action="ap-parent-clear" title="Clear parent">×</button>' : ''}${parentHits.length ? `<div class="nm-parent-list">${parentHits.map(r => `<button class="nm-parent-opt" data-action="ap-parent-pick" data-guid="${this._escape(r.guid)}">${this._escape(r.fullTitle)}</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">Filter children</label><div class="nm-input-wrap"><input class="nm-input nm-ap-filter" type="text" value="${this._escape(st.filterText)}" placeholder="Filter by title...">${st.filterText ? '<button class="nm-parent-clear" data-action="ap-filter-clear" title="Clear filter">×</button>' : ''}</div></div></div><div class="nm-list-head"><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-all"${allVisibleChecked ? ' checked' : ''}> <span class="nm-muted">All visible</span></label><span class="nm-pill">${selectedCount} selected</span></div><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-hide-childof"${st.hideChildOfRows ? ' checked' : ''}> <span class="nm-muted">Hide child of:</span></label></div></div><div class="nm-table-wrap"><table class="nm-table"><thead><tr><th style="width:42px"></th><th>Title</th><th>Status</th></tr></thead><tbody>${visibleRows.map(r => `<tr><td><input type="checkbox" data-action="ap-toggle" data-guid="${this._escape(r.guid)}"${r.checked ? ' checked' : ''}></td><td>${this._escape(r.fullTitle)}</td><td>${this._assignStatusHtml(r)}</td></tr>`).join('') || '<tr><td colspan="3">No rows match.</td></tr>'}</tbody></table></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="ap-preview">Preview</button><button class="nm-btn" data-action="run-assign-parent"${(st.running || !st.parentGuid) ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._sharedTailHTML()}</div>`;
     }
 
     _buildTagRenameHTML() {
         const st = this._tagState;
         const suggestions = this._tagSuggestions().slice(0, 20);
-        const bits = [];
-        if (!st.caseSensitive) bits.push('Case-insensitive');
-        if (!st.excludeChoiceValues) bits.push('Choice included');
-        const excludedCount = this._parseExcludedCollections(st.excludedCollectionsRaw).length;
-        if (excludedCount > 0) bits.push(`${excludedCount} excluded`);
-        const advancedState = bits.length ? bits.join(', ') : 'Defaults';
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Tag Rename (Quick)</p><p class="nm-text">Fast preview/apply rename flow. Advanced review remains separate.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Current tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-old" type="text" value="${this._escape(st.oldTag)}" placeholder="#current-tag">${st.oldTag ? '<button class="nm-parent-clear" data-action="tr-old-clear" title="Clear current tag">×</button>' : ''}${(st.oldSearchOpen && suggestions.length) ? `<div class="nm-parent-list">${suggestions.map(s => `<button class="nm-parent-opt" data-action="tr-old-pick" data-tag="${this._escape(s.tag)}">#${this._escape(s.tag)} (${s.count})</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">New tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-new" type="text" value="${this._escape(st.newTag)}" placeholder="#new-tag">${st.newTag ? '<button class="nm-parent-clear" data-action="tr-new-clear" title="Clear new tag">×</button>' : ''}</div></div></div><div class="nm-inline" style="margin-bottom:8px;"><button class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div><div class="nm-adv"><div class="nm-adv-head" data-action="tr-toggle-advanced"><span class="nm-muted">${st.advancedOpen ? '▾' : '▸'} Matching options</span><span class="nm-muted">${this._escape(advancedState)}</span></div>${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-case"${st.caseSensitive ? ' checked' : ''}> <span class="nm-muted">Case-sensitive matching</span></label></div><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-exclude-choice"${st.excludeChoiceValues ? ' checked' : ''}> <span class="nm-muted">Exclude choice/enum from tag list</span></label></div><div class="nm-field" style="grid-column:1/-1"><label class="nm-label">Exclude collections (comma-separated names or GUIDs)</label><input class="nm-input nm-tr-excluded-collections" type="text" value="${this._escape(st.excludedCollectionsRaw)}" placeholder="Record Snapshots, 1QWXXZCX9KZH5NC4D4KK0X1Y04"></div></div></div>` : ''}</div><div style="height:12px;"></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-preview">Preview</button><button class="nm-btn" data-action="tr-apply"${st.running ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._buildReviewLogSection()}${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : ''}</div>`;
+        const advancedState = this._tagAdvancedState(st);
+        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Tag Rename (Quick)</p><p class="nm-text">Fast preview/apply rename flow. Advanced review remains separate.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Current tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-old" type="text" value="${this._escape(st.oldTag)}" placeholder="#current-tag" title="Cmd/Ctrl+Enter: preview. Cmd/Ctrl+Shift+Enter: apply.">${st.oldTag ? '<button class="nm-parent-clear" data-action="tr-old-clear" title="Clear current tag">×</button>' : ''}${(st.oldSearchOpen && suggestions.length) ? `<div class="nm-parent-list">${suggestions.map(s => `<button class="nm-parent-opt" data-action="tr-old-pick" data-tag="${this._escape(s.tag)}">#${this._escape(s.tag)} (${s.count})</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">New tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-new" type="text" value="${this._escape(st.newTag)}" placeholder="#new-tag" title="Cmd/Ctrl+Enter: preview. Cmd/Ctrl+Shift+Enter: apply.">${st.newTag ? '<button class="nm-parent-clear" data-action="tr-new-clear" title="Clear new tag">×</button>' : ''}</div></div></div><div class="nm-inline" style="margin-bottom:8px;"><button class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div><div class="nm-adv"><div class="nm-adv-head" data-action="tr-toggle-advanced"><span class="nm-muted">${st.advancedOpen ? '▾' : '▸'} Matching options</span><span class="nm-muted">${this._escape(advancedState)}</span></div>${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-case"${st.caseSensitive ? ' checked' : ''}> <span class="nm-muted">Case-sensitive matching</span></label></div><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-exclude-choice"${st.excludeChoiceValues ? ' checked' : ''}> <span class="nm-muted">Exclude choice/enum from tag list</span></label></div>${this._buildExcludedCollectionsFieldHTML()}</div></div>` : ''}</div><div style="height:12px;"></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-preview" title="Cmd/Ctrl+Enter">Preview</button><button class="nm-btn" data-action="tr-apply"${st.running ? ' disabled' : ''} title="Cmd/Ctrl+Shift+Enter">Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._sharedTailHTML()}</div>`;
     }
 
     _buildTagReviewHTML() {
@@ -258,18 +366,10 @@ class NotesManagerPanel {
         const suggestions = this._tagSuggestions().slice(0, 20);
         const hasTrace = !!(st.traceOutput && st.traceOutput.trim());
         const trace = this._escape(st.traceOutput || 'Run "Trace current tag source" to inspect where the current tag is found.');
-        const bits = [];
-        if (!st.caseSensitive) bits.push('Case-insensitive');
-        if (!st.excludeChoiceValues) bits.push('Choice included');
-        const excludedCount = this._parseExcludedCollections(st.excludedCollectionsRaw).length;
-        if (excludedCount > 0) bits.push(`${excludedCount} excluded`);
-        const advancedState = bits.length ? bits.join(', ') : 'Defaults';
+        const advancedState = this._tagAdvancedState(st);
         const gridRows = this._reviewGridRowsForDisplay();
-        const rgSuggestions = st.reviewGridSourceSearchOpen ? this._tagSuggestionsForValue(st.reviewGridSourceTag).slice(0, 20) : [];
         const defaultHeaderLabel = (this.cleanTag(st.reviewGridDefaultTarget || st.newTag) || 'Default').toUpperCase();
-        const reviewGridMeta = (st.reviewGridRows?.length || 0)
-            ? `Queue built: ${gridRows.length} of ${st.reviewGridRows.length} row(s) visible.`
-            : (st.reviewGridMeta || 'No queue built.');
+        const reviewGridMeta = this._reviewGridMetaSummary(gridRows);
         return `<div class="nm-root">
 <div class="nm-header">
 <div class="nm-header-left">${this._menuHTML()}</div>
@@ -297,7 +397,7 @@ ${(st.oldSearchOpen && suggestions.length) ? `<div class="nm-parent-list">${sugg
 <span class="nm-muted">${st.advancedOpen ? '▾' : '▸'} Matching options</span>
 <span class="nm-muted">${this._escape(advancedState)}</span>
 </div>
-${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-case"${st.caseSensitive ? ' checked' : ''}> <span class="nm-muted">Case-sensitive matching</span></label></div><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-exclude-choice"${st.excludeChoiceValues ? ' checked' : ''}> <span class="nm-muted">Exclude choice/enum from tag list</span></label></div><div class="nm-field" style="grid-column:1/-1"><label class="nm-label">Exclude collections (comma-separated names or GUIDs)</label><input class="nm-input nm-tr-excluded-collections" type="text" value="${this._escape(st.excludedCollectionsRaw)}" placeholder="Record Snapshots, 1QWXXZCX9KZH5NC4D4KK0X1Y04"></div></div></div>` : ''}
+${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-case"${st.caseSensitive ? ' checked' : ''}> <span class="nm-muted">Case-sensitive matching</span></label></div><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-exclude-choice"${st.excludeChoiceValues ? ' checked' : ''}> <span class="nm-muted">Exclude choice/enum from tag list</span></label></div>${this._buildExcludedCollectionsFieldHTML()}</div></div>` : ''}
 </div>
 <div style="height:12px;"></div>
 <div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-trace">Trace tag source</button></div>
@@ -307,16 +407,16 @@ ${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div cl
 <div class="nm-field-grid">
 <div class="nm-field">
 <label class="nm-label">#source-tag</label>
-<div class="nm-input-wrap">
-<input class="nm-input nm-rg-source" type="text" value="${this._escape(st.reviewGridSourceTag)}" placeholder="#source-tag">
+<div class="nm-input-wrap nm-rg-source-host">
+<input class="nm-input nm-rg-source" type="text" value="${this._escape(st.reviewGridSourceTag)}" placeholder="#source-tag" title="Suggestions from tag index; Enter runs Find matches. Cleared field drops the queue." autocomplete="off">
 ${st.reviewGridSourceTag ? '<button class="nm-parent-clear" data-action="tr-rg-source-clear" title="Clear source tag">×</button>' : ''}
-${rgSuggestions.length ? `<div class="nm-parent-list">${rgSuggestions.map(s => `<button class="nm-parent-opt" data-action="tr-rg-source-pick" data-tag="${this._escape(s.tag)}">#${this._escape(s.tag)} (${s.count})</button>`).join('')}</div>` : ''}
+<div class="nm-rg-source-suggest nm-rg-suggest" aria-hidden="true"></div>
 </div>
 </div>
 <div class="nm-field">
 <label class="nm-label">#default-target</label>
 <div class="nm-input-wrap">
-<input class="nm-input nm-rg-target" type="text" value="${this._escape(st.reviewGridDefaultTarget)}" placeholder="#default-target">
+<input class="nm-input nm-rg-target" type="text" value="${this._escape(st.reviewGridDefaultTarget)}" placeholder="#default-target" title="Enter re-runs Find matches when a source tag is set." autocomplete="off">
 ${st.reviewGridDefaultTarget ? '<button class="nm-parent-clear" data-action="tr-rg-target-clear" title="Clear default target">×</button>' : ''}
 </div>
 </div>
@@ -337,8 +437,7 @@ ${hasTrace ? '<button class="nm-btn nm-btn--secondary" data-action="tr-copy-trac
 ${(!hasTrace || st.traceOpen) ? `<div class="nm-status" style="margin-top:8px;">${trace}</div>` : ''}
 </div>
 </div>
-${this._buildReviewLogSection()}
-${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : ''}
+${this._sharedTailHTML()}
 </div>`;
     }
 
@@ -410,6 +509,29 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
                 case 'tr-old-clear': this._tagState.oldTag = ''; if (this._panel) this._render(this._panel); break;
                 case 'tr-old-pick': this._tagState.oldTag = `#${target.dataset.tag || ''}`; this._tagState.oldSearchOpen = false; if (this._panel) this._render(this._panel); break;
                 case 'tr-new-clear': this._tagState.newTag = ''; if (this._panel) this._render(this._panel); break;
+                case 'tr-exclude-picker-toggle': {
+                    e.stopPropagation();
+                    if (!this._tagState.excludedPickerOpen) {
+                        await this._loadExcludePickerCollections();
+                        this._tagState.excludedPickerOpen = true;
+                    } else {
+                        this._tagState.excludedPickerOpen = false;
+                        this._tagState.excludedPickerFilter = '';
+                    }
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'tr-exclude-select-filtered':
+                    await this._excludeSelectFilteredCollections();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'tr-exclude-clear-all':
+                    this._commitExcludedCollectionsRaw('');
+                    this._tagState.excludedPickerFilter = '';
+                    this._tagState.excludedPickerOpen = false;
+                    await this._refreshTagIndex();
+                    if (this._panel) this._render(this._panel);
+                    break;
                 case 'tr-toggle-advanced': this._tagState.advancedOpen = !this._tagState.advancedOpen; if (this._panel) this._render(this._panel); break;
                 case 'tr-toggle-trace-output': if (this._tagState.traceOutput?.trim()) { this._tagState.traceOpen = !this._tagState.traceOpen; if (this._panel) this._render(this._panel); } break;
                 case 'tr-copy-trace':
@@ -428,13 +550,17 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
                     this._tagState.reviewGridSourceTag = '';
                     this._tagState.reviewGridSourceSearchOpen = false;
                     this._tagState.reviewGridSourceSuggestActiveIndex = -1;
+                    this._clearReviewGridQueue();
                     if (this._panel) this._render(this._panel);
                     break;
                 case 'tr-rg-source-pick':
                     this._tagState.reviewGridSourceTag = `#${target.dataset.tag || ''}`;
                     this._tagState.reviewGridSourceSearchOpen = false;
                     this._tagState.reviewGridSourceSuggestActiveIndex = -1;
-                    if (this._panel) this._render(this._panel);
+                    void (async () => {
+                        await this._reviewGridBuild();
+                        if (this._panel) this._render(this._panel);
+                    })();
                     break;
                 case 'tr-rg-target-clear':
                     this._tagState.reviewGridDefaultTarget = '';
@@ -468,6 +594,14 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
                     if (row) { row.action = target.checked ? 'skip' : 'default'; if (row.action !== 'override') row.overrideTarget = ''; if (this._panel) this._render(this._panel); }
                     break;
                 }
+                case 'tr-rg-override-clear': {
+                    const row = this._tagState.reviewGridRows.find(r => r.id === target.dataset.id);
+                    if (!row) break;
+                    row.overrideTarget = '';
+                    row.action = 'default';
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
                 case 'tr-rg-toggle-group': {
                     const source = target.dataset.source || '';
                     if (!source) break;
@@ -475,6 +609,35 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
                     if (set.has(source)) set.delete(source);
                     else set.add(source);
                     if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'tr-rg-group-default': {
+                    const tagKey = target.dataset.source || '';
+                    if (!tagKey) break;
+                    for (const row of this._tagState.reviewGridRows) {
+                        const k = this.cleanTag(row.sourceTag || '') || '(none)';
+                        if (k !== tagKey) continue;
+                        row.action = 'default';
+                        row.overrideTarget = '';
+                    }
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'tr-rg-group-skip': {
+                    const tagKey = target.dataset.source || '';
+                    if (!tagKey) break;
+                    for (const row of this._tagState.reviewGridRows) {
+                        const k = this.cleanTag(row.sourceTag || '') || '(none)';
+                        if (k !== tagKey) continue;
+                        row.action = 'skip';
+                        row.overrideTarget = '';
+                    }
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'tr-rg-open-record': {
+                    const guid = target.dataset.guid || '';
+                    void this._openReviewGridRecordInOtherPanel(guid);
                     break;
                 }
                 case 'tr-refresh-index':
@@ -513,6 +676,26 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
         if (trOld) {
             trOld.addEventListener('input', () => { this._tagState.oldTag = trOld.value; this._tagState.oldSearchOpen = true; this._tagState.suggestActiveIndex = -1; if (this._panel) this._render(this._panel); }, { signal });
             trOld.addEventListener('keydown', e => {
+                if (this._mode === 'tag-rename') {
+                    const isQuickPreview = (e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.shiftKey;
+                    const isQuickApply = (e.metaKey || e.ctrlKey) && e.key === 'Enter' && e.shiftKey;
+                    if (isQuickPreview || isQuickApply) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this._tagState.oldTag = trOld.value;
+                        const trNewEl = el.querySelector('.nm-tr-new');
+                        if (trNewEl) this._tagState.newTag = trNewEl.value;
+                        void (async () => {
+                            try {
+                                if (isQuickPreview) await this._previewTagRename();
+                                else await this._applyTagRename();
+                            } finally {
+                                if (this._panel) this._render(this._panel);
+                            }
+                        })();
+                        return;
+                    }
+                }
                 const suggestions = this._tagSuggestions();
                 if (e.key === 'ArrowDown') {
                     e.preventDefault();
@@ -543,7 +726,28 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
             }, { signal });
         }
         const trNew = el.querySelector('.nm-tr-new');
-        if (trNew) trNew.addEventListener('input', () => { this._tagState.newTag = trNew.value; if (this._panel) this._render(this._panel); }, { signal });
+        if (trNew) {
+            trNew.addEventListener('input', () => { this._tagState.newTag = trNew.value; if (this._panel) this._render(this._panel); }, { signal });
+            trNew.addEventListener('keydown', e => {
+                if (this._mode !== 'tag-rename') return;
+                const isQuickPreview = (e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.shiftKey;
+                const isQuickApply = (e.metaKey || e.ctrlKey) && e.key === 'Enter' && e.shiftKey;
+                if (!isQuickPreview && !isQuickApply) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const trOldEl = el.querySelector('.nm-tr-old');
+                if (trOldEl) this._tagState.oldTag = trOldEl.value;
+                this._tagState.newTag = trNew.value;
+                void (async () => {
+                    try {
+                        if (isQuickPreview) await this._previewTagRename();
+                        else await this._applyTagRename();
+                    } finally {
+                        if (this._panel) this._render(this._panel);
+                    }
+                })();
+            }, { signal });
+        }
         const trCase = el.querySelector('.nm-tr-case');
         if (trCase) trCase.addEventListener('change', () => { this._tagState.caseSensitive = !!trCase.checked; this._settings.tagCaseSensitiveDefault = !!trCase.checked; this._saveSettings(); if (this._panel) this._render(this._panel); }, { signal });
         const trExcludeChoice = el.querySelector('.nm-tr-exclude-choice');
@@ -554,72 +758,98 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
             await this._refreshTagIndex();
             if (this._panel) this._render(this._panel);
         }, { signal });
-        const trExcludedCollections = el.querySelector('.nm-tr-excluded-collections');
-        if (trExcludedCollections) {
-            trExcludedCollections.addEventListener('input', () => {
-                // Keep typing smooth: persist value without forcing rerender per keystroke.
-                this._tagState.excludedCollectionsRaw = trExcludedCollections.value;
-                this._settings.tagExcludedCollectionsDefault = trExcludedCollections.value;
-                this._saveSettings();
+        const trExcludePickerFilter = el.querySelector('.nm-tr-exclude-picker-filter');
+        if (trExcludePickerFilter) {
+            trExcludePickerFilter.addEventListener('input', () => {
+                this._tagState.excludedPickerFilter = trExcludePickerFilter.value;
+                if (this._panel) this._render(this._panel);
             }, { signal });
-            trExcludedCollections.addEventListener('change', async () => {
-                this._tagState.excludedCollectionsRaw = trExcludedCollections.value;
-                this._settings.tagExcludedCollectionsDefault = trExcludedCollections.value;
-                this._saveSettings();
+        }
+        el.querySelectorAll('.nm-tr-exclude-col-cb').forEach(cb => {
+            cb.addEventListener('change', async () => {
+                const guid = cb.dataset.guid;
+                const col = this._tagState.excludePickerCollections.find(c => c.guid === guid);
+                if (!col) return;
+                const tokens = this._parseExcludedCollections(this._tagState.excludedCollectionsRaw);
+                if (cb.checked) {
+                    if (!this._collectionExcludedByTokens(col, tokens)) tokens.push((col.name || '').trim() || col.guid);
+                } else {
+                    const idx = tokens.findIndex(t => {
+                        const tr = String(t || '').trim();
+                        if (!tr) return false;
+                        if (tr === col.guid) return true;
+                        return tr.toLowerCase() === (col.name || '').trim().toLowerCase();
+                    });
+                    if (idx >= 0) tokens.splice(idx, 1);
+                }
+                this._commitExcludedCollectionsRaw(tokens.join(', '));
                 await this._refreshTagIndex();
                 if (this._panel) this._render(this._panel);
             }, { signal });
-        }
+        });
         const rgSource = el.querySelector('.nm-rg-source');
-        if (rgSource) {
+        const rgSourceSuggest = el.querySelector('.nm-rg-source-suggest');
+        if (rgSource && rgSourceSuggest) {
+            const srcSuggest = this._attachTagIndexAutocomplete(rgSource, rgSourceSuggest, signal, clean => {
+                this._tagState.reviewGridSourceTag = `#${clean}`;
+                void (async () => {
+                    await this._reviewGridBuild();
+                    if (this._panel) this._render(this._panel);
+                })();
+            });
             rgSource.addEventListener('input', () => {
                 this._tagState.reviewGridSourceTag = rgSource.value;
-                this._tagState.reviewGridSourceSearchOpen = true;
-                this._tagState.reviewGridSourceSuggestActiveIndex = -1;
-                if (this._panel) this._render(this._panel);
+                if (!this.cleanTag(rgSource.value)) {
+                    srcSuggest.close();
+                    this._clearReviewGridQueue();
+                    if (this._panel) this._render(this._panel);
+                }
             }, { signal });
             rgSource.addEventListener('keydown', e => {
-                const suggestions = this._tagSuggestionsForValue(this._tagState.reviewGridSourceTag || '');
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    if (!suggestions.length) return;
-                    this._tagState.reviewGridSourceSearchOpen = true;
-                    this._tagState.reviewGridSourceSuggestActiveIndex = Math.min(suggestions.length - 1, this._tagState.reviewGridSourceSuggestActiveIndex + 1);
+                if (e.key !== 'Enter' || e.defaultPrevented) return;
+                if (e.metaKey || e.ctrlKey) return;
+                e.preventDefault();
+                e.stopPropagation();
+                srcSuggest.close();
+                this._tagState.reviewGridSourceTag = rgSource.value;
+                if (!this.cleanTag(rgSource.value)) {
+                    this._clearReviewGridQueue();
                     if (this._panel) this._render(this._panel);
                     return;
                 }
-                if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    if (!suggestions.length) return;
-                    this._tagState.reviewGridSourceSearchOpen = true;
-                    this._tagState.reviewGridSourceSuggestActiveIndex = Math.max(0, this._tagState.reviewGridSourceSuggestActiveIndex - 1);
+                void (async () => {
+                    await this._reviewGridBuild();
                     if (this._panel) this._render(this._panel);
-                    return;
-                }
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const idx = this._tagState.reviewGridSourceSuggestActiveIndex >= 0 ? this._tagState.reviewGridSourceSuggestActiveIndex : 0;
-                    const pick = suggestions[idx];
-                    if (!pick) {
-                        this._tagState.reviewGridSourceSearchOpen = false;
-                        this._tagState.reviewGridSourceSuggestActiveIndex = -1;
-                        if (this._panel) this._render(this._panel);
-                        return;
-                    }
-                    this._tagState.reviewGridSourceTag = `#${pick.tag}`;
-                    this._tagState.reviewGridSourceSearchOpen = false;
-                    this._tagState.reviewGridSourceSuggestActiveIndex = -1;
-                    if (this._panel) this._render(this._panel);
-                }
+                })();
             }, { signal });
         }
         const rgTarget = el.querySelector('.nm-rg-target');
-        if (rgTarget) rgTarget.addEventListener('input', () => { this._tagState.reviewGridDefaultTarget = rgTarget.value; }, { signal });
+        if (rgTarget) {
+            rgTarget.addEventListener('input', () => {
+                this._tagState.reviewGridDefaultTarget = rgTarget.value;
+                if (this._panel) this._render(this._panel);
+            }, { signal });
+            rgTarget.addEventListener('keydown', e => {
+                if (e.key !== 'Enter' || e.defaultPrevented) return;
+                if (e.metaKey || e.ctrlKey) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this._tagState.reviewGridDefaultTarget = rgTarget.value;
+                if (!this.cleanTag(this._tagState.reviewGridSourceTag || '')) return;
+                void (async () => {
+                    await this._reviewGridBuild();
+                    if (this._panel) this._render(this._panel);
+                })();
+            }, { signal });
+        }
         const rgFilter = el.querySelector('.nm-rg-filter');
         if (rgFilter) rgFilter.addEventListener('input', () => { this._tagState.reviewGridFilter = rgFilter.value; if (this._panel) this._render(this._panel); }, { signal });
         const rgSort = el.querySelector('.nm-rg-sort');
         if (rgSort) rgSort.addEventListener('change', () => { this._tagState.reviewGridSort = rgSort.value; if (this._panel) this._render(this._panel); }, { signal });
-        el.querySelectorAll('.nm-rg-row-target').forEach(input => {
+        el.querySelectorAll('.nm-rg-override-wrap').forEach(wrap => {
+            const input = wrap.querySelector('.nm-rg-row-target');
+            const box = wrap.querySelector('.nm-rg-override-suggest');
+            if (!input || !box) return;
             input.addEventListener('input', () => {
                 const row = this._tagState.reviewGridRows.find(r => r.id === input.dataset.id);
                 if (!row) return;
@@ -638,7 +868,27 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
                     if (skipCb) skipCb.checked = false;
                 }
             }, { signal });
+            this._attachTagIndexAutocomplete(input, box, signal, clean => {
+                const row = this._tagState.reviewGridRows.find(r => r.id === input.dataset.id);
+                if (!row) return;
+                row.overrideTarget = clean;
+                row.action = 'override';
+                if (this._panel) this._render(this._panel);
+            });
         });
+
+        if (this._tagState.excludedPickerOpen) {
+            const onDocClick = (ev) => {
+                if (!el.contains(ev.target)) return;
+                if (ev.target.closest('.nm-exclude-picker-host')) return;
+                this._tagState.excludedPickerOpen = false;
+                this._tagState.excludedPickerFilter = '';
+                document.removeEventListener('click', onDocClick, true);
+                if (this._panel) this._render(this._panel);
+            };
+            setTimeout(() => document.addEventListener('click', onDocClick, true), 0);
+            signal.addEventListener('abort', () => document.removeEventListener('click', onDocClick, true));
+        }
 
         el.addEventListener('keydown', e => {
             const t = e.target;
@@ -1108,7 +1358,8 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
         return originalValue.trim().startsWith('#') ? `#${newTag}` : newTag;
     }
 
-    async _refreshTagIndex() {
+    async _refreshTagIndex(refreshOptions = {}) {
+        const quiet = !!refreshOptions.quiet;
         const st = this._tagState;
         if (st.refreshInFlight) {
             st.refreshRerunWanted = true;
@@ -1117,11 +1368,11 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
         st.refreshInFlight = true;
         const run = async () => {
             try {
-                const opts = this._tagScanOpts();
-                const scope = await this.getScannableCollections(opts);
+                const scanOpts = this._tagScanOpts();
+                const scope = await this.getScannableCollections(scanOpts);
                 const tagToRecordGuids = new Map();
-                const stats = await this.forEachScannableRecord(opts, async (record) => {
-                    const tagsInRecord = await this.collectTagsFromRecord(record, opts);
+                const stats = await this.forEachScannableRecord(scanOpts, async (record) => {
+                    const tagsInRecord = await this.collectTagsFromRecord(record, scanOpts);
                     for (const tag of tagsInRecord) {
                         if (!tagToRecordGuids.has(tag)) tagToRecordGuids.set(tag, new Set());
                         tagToRecordGuids.get(tag).add(record.guid);
@@ -1130,11 +1381,13 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
                 st.tagIndex = [...tagToRecordGuids.entries()]
                     .map(([tag, guidSet]) => ({ tag, count: guidSet.size }))
                     .sort((a, b) => a.tag.localeCompare(b.tag));
-                const choiceNote = opts.excludeChoiceValues ? ' (choice/enum excluded)' : '';
+                const choiceNote = scanOpts.excludeChoiceValues ? ' (choice/enum excluded)' : '';
                 const excludedNote = scope.excludedCount ? ` Excluded collections: ${scope.excludedCount}.` : '';
                 st.indexMeta = `Loaded ${st.tagIndex.length} tags from ${stats.recordCount} records in ${scope.collections.length} user collections.${choiceNote}${excludedNote}${scope.warning ? ` ${scope.warning}` : ''}`;
-                this._logRow('tag-index', 'applied', { recordGuid: '', recordName: '' }, st.indexMeta);
-                this._setStatus(st.indexMeta, { title: 'Tag index', logged: true });
+                if (!quiet) {
+                    this._logRow('tag-index', 'applied', { recordGuid: '', recordName: '' }, st.indexMeta);
+                    this._setStatus(st.indexMeta, { title: 'Tag index', logged: true });
+                }
                 if (st.refreshRerunWanted) {
                     st.refreshRerunWanted = false;
                     return run();
@@ -1249,7 +1502,7 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
             'title-desc': (a, b) => (b.recordName || '').localeCompare(a.recordName || ''),
             'source-asc': (a, b) => (a.source || '').localeCompare(b.source || ''),
             'source-desc': (a, b) => (b.source || '').localeCompare(a.source || ''),
-            'tag-group': (a, b) => (a.sourceTag || '').localeCompare(b.sourceTag || '') || (a.recordName || '').localeCompare(b.recordName || ''),
+            'tag-group': (a, b) => this.cleanTag(a.sourceTag || '').localeCompare(this.cleanTag(b.sourceTag || '')) || (a.recordName || '').localeCompare(b.recordName || ''),
         }[st.reviewGridSort || 'title-asc'];
         if (cmp) rows.sort(cmp);
         return rows;
@@ -1263,29 +1516,237 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
         }
         const grouped = new Map();
         for (const row of rows) {
-            const key = row.sourceTag || '(none)';
+            const key = this.cleanTag(row.sourceTag || '') || '(none)';
             if (!grouped.has(key)) grouped.set(key, []);
             grouped.get(key).push(row);
         }
         const out = [];
-        for (const [tag, list] of grouped.entries()) {
+        const sortedGroups = [...grouped.entries()].sort((a, b) => {
+            const ak = a[0] === '(none)' ? '\uFFFF' : a[0];
+            const bk = b[0] === '(none)' ? '\uFFFF' : b[0];
+            return ak.localeCompare(bk);
+        });
+        for (const [tag, list] of sortedGroups) {
             const collapsed = st.reviewGridCollapsedSources.has(tag);
-            out.push(`<tr class="nm-rg-group-row"><td colspan="5"><button class="nm-btn nm-btn--secondary" data-action="tr-rg-toggle-group" data-source="${this._escape(tag)}">${collapsed ? '▸' : '▾'} #${this._escape(tag)} (${list.length})</button></td></tr>`);
+            const disp = tag === '(none)' ? 'unknown' : tag;
+            out.push(`<tr class="nm-rg-group-row"><td colspan="5"><div class="nm-inline" style="justify-content:space-between;width:100%;flex-wrap:wrap;gap:8px;align-items:center"><div class="nm-inline" style="gap:8px;align-items:center"><button type="button" class="nm-btn nm-btn--secondary" data-action="tr-rg-toggle-group" data-source="${this._escape(tag)}">${collapsed ? 'Expand' : 'Collapse'}</button><strong>#${this._escape(disp)} (${list.length})</strong></div><div class="nm-actions" style="margin:0"><button type="button" class="nm-btn nm-btn--secondary" data-action="tr-rg-group-default" data-source="${this._escape(tag)}">Set group default</button><button type="button" class="nm-btn nm-btn--secondary" data-action="tr-rg-group-skip" data-source="${this._escape(tag)}">Set group skip</button></div></div></td></tr>`);
             if (collapsed) continue;
-            out.push(...list.map(r => this._reviewGridRowHTML(r)));
+            out.push(...list.map(r => this._reviewGridRowHTML(r, { tagGroup: true })));
         }
         return out.join('');
     }
 
-    _reviewGridRowHTML(row) {
-        return `<tr><td>${this._escape(row.recordName || '(untitled)')}</td><td>${this._escape(row.preview || '')}</td><td><input type="checkbox" data-action="tr-rg-default" data-id="${this._escape(row.id)}"${row.action === 'default' ? ' checked' : ''}></td><td><input type="checkbox" data-action="tr-rg-skip" data-id="${this._escape(row.id)}"${row.action === 'skip' ? ' checked' : ''}></td><td><input class="nm-input nm-rg-row-target" data-id="${this._escape(row.id)}" type="text" value="${this._escape(row.overrideTarget || '')}" placeholder="override tag"></td></tr>`;
+    _reviewGridRowHTML(row, opts = {}) {
+        const tagGroup = !!opts.tagGroup;
+        const rowTag = this.cleanTag(row.sourceTag || '');
+        const sub = (tagGroup && rowTag) ? `<div class="nm-muted" style="font-size:11px;opacity:0.8;">#${this._escape(rowTag)}</div>` : '';
+        const titleOpen = tagGroup && row.recordGuid
+            ? `<div class="nm-rg-title-open" tabindex="0" role="link" data-action="tr-rg-open-record" data-guid="${this._escape(row.recordGuid)}" title="Open this record in another panel"><div>${this._escape(row.recordName || '(untitled)')}</div>${sub}</div>`
+            : `<div>${this._escape(row.recordName || '(untitled)')}</div>${sub}`;
+        const ovRaw = row.overrideTarget || '';
+        const hasOverride = !!this.cleanTag(ovRaw);
+        const clearOverride = hasOverride ? `<button type="button" class="nm-parent-clear" data-action="tr-rg-override-clear" data-id="${this._escape(row.id)}" title="Clear override tag">×</button>` : '';
+        return `<tr><td>${titleOpen}</td><td>${this._escape(row.preview || '')}</td><td><input type="checkbox" data-action="tr-rg-default" data-id="${this._escape(row.id)}"${row.action === 'default' ? ' checked' : ''}></td><td><input type="checkbox" data-action="tr-rg-skip" data-id="${this._escape(row.id)}"${row.action === 'skip' ? ' checked' : ''}></td><td><div class="nm-rg-override-wrap"><div class="nm-input-wrap"><input class="nm-input nm-rg-row-target" data-id="${this._escape(row.id)}" type="text" value="${this._escape(ovRaw)}" placeholder="override tag" title="Focus or click for tag suggestions from the index; ArrowDown opens the list; Enter picks when highlighted" autocomplete="off">${clearOverride}</div><div class="nm-rg-override-suggest nm-rg-suggest" aria-hidden="true"></div></div></td></tr>`;
+    }
+
+    _clearReviewGridQueue() {
+        const st = this._tagState;
+        st.reviewGridRows = [];
+        st.reviewGridCollapsedSources = new Set();
+        st.reviewGridMeta = 'No queue built.';
+    }
+
+    _reviewGridMetaSummary(gridRows) {
+        const st = this._tagState;
+        const rows = st.reviewGridRows || [];
+        const total = rows.length;
+        if (!total) return st.reviewGridMeta || 'No queue built.';
+        const viewLen = Array.isArray(gridRows) ? gridRows.length : 0;
+        const defaults = rows.filter(r => r.action === 'default').length;
+        const skips = rows.filter(r => r.action === 'skip').length;
+        const overrides = rows.filter(r => r.action === 'override').length;
+        return `Rows: ${viewLen}/${total} | default: ${defaults} | skip: ${skips} | override: ${overrides}`;
+    }
+
+    _reviewGridBuildPlan() {
+        const st = this._tagState;
+        const rows = Array.isArray(st.reviewGridRows) ? st.reviewGridRows : [];
+        const defaultTarget = this.cleanTag(st.reviewGridDefaultTarget || st.newTag || '');
+        const sourceTag = this.cleanTag(st.reviewGridSourceTag || st.oldTag || '');
+        const rowsToApply = rows.filter(r => r.action !== 'skip');
+        const overrideRows = rows.filter(r => r.action === 'override');
+        const defaultRows = rows.filter(r => r.action === 'default');
+        const missingTargetRows = rowsToApply.filter(r => {
+            const t = r.action === 'override' ? this.cleanTag(r.overrideTarget || '') : defaultTarget;
+            return !t;
+        });
+        const overrideTargetCounts = new Map();
+        for (const row of overrideRows) {
+            const tag = this.cleanTag(row.overrideTarget || '');
+            if (!tag) continue;
+            overrideTargetCounts.set(tag, (overrideTargetCounts.get(tag) || 0) + 1);
+        }
+        const overrideSummary = [...overrideTargetCounts.entries()]
+            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+            .map(([tag, count]) => `- ${tag}: ${count}`)
+            .join('\n');
+        const preLines = [
+            'Apply reviewed rows summary',
+            '',
+            `Total rows: ${rows.length}`,
+            `Will attempt apply: ${rowsToApply.length}`,
+            `Default rows: ${defaultRows.length} (default target: ${defaultTarget || '(missing)'})`,
+            `Override rows: ${overrideRows.length}`,
+            `Skipped rows: ${rows.length - rowsToApply.length}`,
+            `Missing target rows (will not be renamed on apply): ${missingTargetRows.length}`,
+        ];
+        if (!defaultTarget && defaultRows.length > 0) {
+            preLines.push(
+                '',
+                `Note: ${defaultRows.length} row(s) are set to Default but no default target is set — they will be skipped, not renamed.`,
+            );
+        }
+        if (overrideRows.length > 0) {
+            const emptyOv = overrideRows.filter(r => !this.cleanTag(r.overrideTarget || '')).length;
+            if (emptyOv > 0) {
+                preLines.push(
+                    '',
+                    `Note: ${emptyOv} row(s) are set to Override with an empty new tag — they will be skipped, not renamed.`,
+                );
+            }
+        }
+        preLines.push(
+            '',
+            'Override tags to be used:',
+            overrideSummary || '- (none)',
+        );
+        const preSummary = preLines.join('\n');
+        return {
+            rowsToApply,
+            defaultTarget,
+            sourceTag,
+            preSummary,
+            totalRows: rows.length,
+            userSkippedCount: rows.length - rowsToApply.length,
+            missingTargetPlanned: missingTargetRows.length,
+            defaultRowsCount: defaultRows.length,
+            overrideRowsCount: overrideRows.length,
+        };
+    }
+
+    _attachTagIndexAutocomplete(input, suggestEl, signal, onSelectTag) {
+        if (!input || !suggestEl) return { close: () => {} };
+        let items = [];
+        let active = -1;
+        const list = () => (Array.isArray(this._tagState.tagIndex) ? this._tagState.tagIndex : []);
+        const close = () => {
+            items = [];
+            active = -1;
+            suggestEl.style.display = 'none';
+            suggestEl.innerHTML = '';
+        };
+        const highlight = () => {
+            [...suggestEl.querySelectorAll('.nm-rg-suggest-row')].forEach((rowEl, i) => {
+                rowEl.classList.toggle('nm-rg-suggest-row--active', i === active);
+            });
+        };
+        const choose = (tag) => {
+            if (!tag) return;
+            const clean = this.cleanTag(tag);
+            if (!clean) return;
+            input.value = clean;
+            onSelectTag?.(clean);
+            close();
+        };
+        const render = () => {
+            const q = this.cleanTag(input.value || '').toLowerCase();
+            const fullList = list();
+            const source = !q
+                ? fullList.slice(0, 30)
+                : fullList
+                    .filter(t => t.tag.toLowerCase().includes(q))
+                    .sort((a, b) => {
+                        const aStarts = a.tag.toLowerCase().startsWith(q) ? 0 : 1;
+                        const bStarts = b.tag.toLowerCase().startsWith(q) ? 0 : 1;
+                        if (aStarts !== bStarts) return aStarts - bStarts;
+                        return a.tag.localeCompare(b.tag);
+                    })
+                    .slice(0, 30);
+            if (!source.length) {
+                close();
+                return;
+            }
+            items = source;
+            active = -1;
+            suggestEl.innerHTML = source.map(it => `<button type="button" class="nm-rg-suggest-row" data-tag="${this._escape(it.tag)}">${this._escape(it.tag)} (${it.count})</button>`).join('');
+            suggestEl.style.display = 'block';
+            suggestEl.querySelectorAll('.nm-rg-suggest-row').forEach(btn => {
+                btn.addEventListener('mousedown', ev => {
+                    ev.preventDefault();
+                    choose(btn.dataset.tag);
+                });
+            });
+        };
+        const onKeydown = ev => {
+            const open = suggestEl.style.display !== 'none' && items.length > 0;
+            if (!open && ev.key === 'ArrowDown') {
+                ev.preventDefault();
+                render();
+                return;
+            }
+            if (!open) return;
+            if (ev.key === 'ArrowDown') {
+                ev.preventDefault();
+                active = active < items.length - 1 ? active + 1 : 0;
+                highlight();
+            } else if (ev.key === 'ArrowUp') {
+                ev.preventDefault();
+                active = active > 0 ? active - 1 : items.length - 1;
+                highlight();
+            } else if (ev.key === 'Enter') {
+                if (active >= 0 && items[active]) {
+                    ev.preventDefault();
+                    choose(items[active].tag);
+                }
+            } else if (ev.key === 'Escape') {
+                ev.preventDefault();
+                close();
+            }
+        };
+        input.addEventListener('input', render);
+        input.addEventListener('focus', () => render());
+        input.addEventListener('click', () => render());
+        input.addEventListener('keydown', onKeydown);
+        input.addEventListener('blur', () => {
+            setTimeout(() => close(), 120);
+        });
+        signal.addEventListener('abort', () => close(), { once: true });
+        return { close };
+    }
+
+    async _openReviewGridRecordInOtherPanel(recordGuid) {
+        const rootId = String(recordGuid || '').trim();
+        if (!rootId) return;
+        let workspaceGuid = null;
+        try {
+            workspaceGuid = typeof this.plugin.getWorkspaceGuid === 'function' ? this.plugin.getWorkspaceGuid() : null;
+        } catch (_) {
+            /* navigateTo may still resolve without workspace */
+        }
+        try {
+            const p = await this.plugin.ui.createPanel();
+            if (!p?.navigateTo) return;
+            p.navigateTo({ type: 'edit_panel', rootId, subId: null, workspaceGuid });
+        } catch (_) {
+            /* ignore */
+        }
     }
 
     async _reviewGridBuild() {
         const st = this._tagState;
-        const sourceTag = this.cleanTag(st.reviewGridSourceTag || st.oldTag);
-        if (!sourceTag) { this._setStatus('Review Grid: source tag is required.'); return; }
-        st.reviewGridSourceTag = sourceTag;
+        const normalizedSource = this.cleanTag(st.reviewGridSourceTag || st.oldTag);
+        if (!normalizedSource) { this._setStatus('Review Grid: source tag is required.'); return; }
+        st.reviewGridSourceTag = normalizedSource;
         const opts = this._tagScanOpts();
         const rows = [];
         let rowId = 0;
@@ -1310,12 +1771,13 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
                     const seg = segs[i];
                     const segText = this.segmentTextAsString(seg);
                     if (!segText) continue;
-                    if (seg?.type === 'hashtag' && this._isTagMatch(segText, sourceTag, false)) {
-                        rows.push({ id: `rg-${rowId++}`, action: 'default', recordGuid, recordName, source: 'body-hashtag-segment', preview, sourceTag, overrideTarget: '' });
+                    if (seg?.type === 'hashtag' && this.isSourceTagPatternMatch(segText, normalizedSource, false)) {
+                        const rowSourceTag = this.cleanTag(segText);
+                        rows.push({ id: `rg-${rowId++}`, action: 'default', recordGuid, recordName, source: 'body-hashtag-segment', preview, sourceTag: rowSourceTag, overrideTarget: '' });
                     } else if (seg?.type === 'text') {
                         for (const token of this.extractHashtagTokensFromText(segText)) {
-                            if (!this._isTagMatch(token, sourceTag, false)) continue;
-                            rows.push({ id: `rg-${rowId++}`, action: 'default', recordGuid, recordName, source: 'body-plaintext-token', preview, sourceTag, overrideTarget: '' });
+                            if (!this.isSourceTagPatternMatch(token, normalizedSource, false)) continue;
+                            rows.push({ id: `rg-${rowId++}`, action: 'default', recordGuid, recordName, source: 'body-plaintext-token', preview, sourceTag: token, overrideTarget: '' });
                         }
                     }
                 }
@@ -1323,53 +1785,69 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
             const properties = record.getAllProperties?.() || [];
             for (const prop of properties) {
                 const propertyName = String(prop?.name ?? '');
-                const labels = prop.selectedChoiceLabels?.() || [];
-                for (const label of labels) {
-                    if (this._isTagMatch(label, sourceTag, false)) rows.push({ id: `rg-${rowId++}`, action: 'default', recordGuid, recordName, source: `property-choice:${propertyName}`, preview, sourceTag, overrideTarget: '' });
+                if (!opts.excludeChoiceValues) {
+                    const labels = prop.selectedChoiceLabels?.() ?? [];
+                    const ids = prop.selectedChoices?.() ?? [];
+                    const n = Math.max(labels.length, ids.length);
+                    for (let i = 0; i < n; i += 1) {
+                        const label = String(labels[i] ?? '');
+                        const rawId = Array.isArray(ids) ? String(ids[i] ?? '') : '';
+                        const labelMatch = this.isSourceTagPatternMatch(label, normalizedSource, false);
+                        const idMatch = rawId && this.isSourceTagPatternMatch(rawId, normalizedSource, false);
+                        if (labelMatch || idMatch) {
+                            const rowSourceTag = labelMatch ? this.cleanTag(label) : this.cleanTag(rawId);
+                            rows.push({ id: `rg-${rowId++}`, action: 'default', recordGuid, recordName, source: `property-choice:${propertyName}`, preview, sourceTag: rowSourceTag, overrideTarget: '' });
+                        }
+                    }
                 }
+                if (!this.shouldScanTextPropertyForTags(prop)) continue;
                 const texts = prop.texts?.() || [];
                 for (const value of texts) {
-                    if (this._isTagMatch(value, sourceTag, false)) rows.push({ id: `rg-${rowId++}`, action: 'default', recordGuid, recordName, source: `property-text:${propertyName}`, preview, sourceTag, overrideTarget: '' });
+                    const v = String(value ?? '');
+                    if (!this.isSourceTagPatternMatch(v, normalizedSource, false)) continue;
+                    rows.push({ id: `rg-${rowId++}`, action: 'default', recordGuid, recordName, source: `property-text:${propertyName}`, preview, sourceTag: this.cleanTag(v), overrideTarget: '' });
                 }
             }
         });
         st.reviewGridRows = rows;
-        st.reviewGridMeta = rows.length ? `Queue built: ${rows.length} of ${rows.length} row(s) visible.` : 'No queue built.';
+        const gridRows = this._reviewGridRowsForDisplay();
+        st.reviewGridMeta = rows.length ? this._reviewGridMetaSummary(gridRows) : 'No queue built.';
         st.reviewGridOutput = '';
         this._setStatus(st.reviewGridMeta, { title: 'Review Grid' });
     }
 
     _reviewGridPreview() {
         const st = this._tagState;
-        const runnable = st.reviewGridRows.filter(r => r.action !== 'skip');
-        if (!runnable.length) {
-            st.reviewGridOutput = 'Review Grid preview: no runnable rows (all skipped).';
+        const rows = st.reviewGridRows || [];
+        if (!rows.length) {
+            st.reviewGridOutput = 'Review Grid preview: build a queue first (Find matches).';
             this._logRow('review-grid', 'preview', { recordGuid: '', recordName: '' }, st.reviewGridOutput);
             this._setStatus(st.reviewGridOutput, { title: 'Review Grid', logged: true });
             return;
         }
-        const defaultTarget = this.cleanTag(st.reviewGridDefaultTarget || st.newTag);
-        const targetMap = new Map();
-        for (const row of runnable) {
-            const t = this.cleanTag((row.action === 'override' ? row.overrideTarget : '') || defaultTarget);
-            if (!t) continue;
-            targetMap.set(t, (targetMap.get(t) || 0) + 1);
-        }
-        const lines = [`Review Grid preview`, `Runnable rows: ${runnable.length}`, `Distinct targets: ${targetMap.size}`];
-        for (const [t, c] of targetMap.entries()) lines.push(`- ${t}: ${c} row(s)`);
-        st.reviewGridOutput = lines.join('\n');
+        const plan = this._reviewGridBuildPlan();
+        st.reviewGridOutput = `${plan.preSummary}\n\nPreview generated.`;
         this._logRow('review-grid', 'preview', { recordGuid: '', recordName: '' }, st.reviewGridOutput);
         this._setStatus(st.reviewGridOutput, { title: 'Review Grid', logged: true });
     }
 
     async _reviewGridApply() {
         const st = this._tagState;
-        const runnable = st.reviewGridRows.filter(r => r.action !== 'skip');
-        if (!runnable.length) { st.reviewGridOutput = 'Review Grid apply: no runnable rows (all skipped).'; return; }
+        const plan = this._reviewGridBuildPlan();
+        st.reviewGridOutput = plan.preSummary;
+        if (!plan.rowsToApply.length) {
+            st.reviewGridOutput += '\n\nNo rows selected for apply.';
+            this._logRow('review-grid', 'summary', { recordGuid: '', recordName: '' }, st.reviewGridOutput);
+            this._setStatus(st.reviewGridOutput, { title: 'Review Grid', logged: true });
+            if (this._panel) this._render(this._panel);
+            return;
+        }
+        st.running = true;
+        if (this._panel) this._render(this._panel);
         const defaultSource = this.cleanTag(st.reviewGridSourceTag || st.oldTag);
         const defaultTarget = this.cleanTag(st.reviewGridDefaultTarget || st.newTag);
         const perRecordTargets = new Map();
-        for (const row of runnable) {
+        for (const row of plan.rowsToApply) {
             const src = this.cleanTag(row.sourceTag || defaultSource);
             const tgt = this.cleanTag((row.action === 'override' ? row.overrideTarget : '') || defaultTarget);
             if (!src || !tgt) continue;
@@ -1377,27 +1855,60 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
             if (!perRecordTargets.has(key)) perRecordTargets.set(key, new Set());
             perRecordTargets.get(key).add(tgt);
         }
-        let applied = 0;
+        const appliedGuids = new Set();
         let skippedConflicts = 0;
         let failed = 0;
+        let skippedNoChange = 0;
         const opts = this._tagScanOpts();
-        await this.forEachScannableRecord(opts, async (record) => {
-            const guid = record?.guid || '';
-            const key = `${guid}|${defaultSource}`;
-            const targets = perRecordTargets.get(key);
-            if (!targets || !targets.size) return;
-            if (targets.size > 1) { skippedConflicts += 1; return; }
-            const target = [...targets][0];
-            try {
-                const changed = await this._renameTagInRecord({ record, oldTag: defaultSource, newTag: target, caseSensitive: st.caseSensitive, dryRun: false, collectRows: null });
-                if (changed.recordChanged) applied += 1;
-            } catch (_) {
-                failed += 1;
-            }
-        });
-        st.reviewGridOutput = `Review Grid apply complete\nApplied records: ${applied}\nSkipped conflicts: ${skippedConflicts}\nFailed: ${failed}`;
-        this._logRow('review-grid', 'summary', { recordGuid: '', recordName: '' }, st.reviewGridOutput);
-        this._setStatus(st.reviewGridOutput, { title: 'Review Grid', logged: true });
+        try {
+            await this.forEachScannableRecord(opts, async (record) => {
+                const guid = record?.guid || '';
+                for (const [mapKey, targets] of perRecordTargets.entries()) {
+                    const pipeIdx = mapKey.indexOf('|');
+                    if (pipeIdx < 0) continue;
+                    const g = mapKey.slice(0, pipeIdx);
+                    const src = mapKey.slice(pipeIdx + 1);
+                    if (g !== guid) continue;
+                    if (!targets || !targets.size) continue;
+                    if (targets.size > 1) { skippedConflicts += 1; continue; }
+                    const target = [...targets][0];
+                    try {
+                        const changed = await this._renameTagInRecord({ record, oldTag: src, newTag: target, caseSensitive: st.caseSensitive, dryRun: false, collectRows: null });
+                        if (changed.recordChanged) appliedGuids.add(guid);
+                        else skippedNoChange += 1;
+                    } catch (_) {
+                        failed += 1;
+                    }
+                }
+            });
+            const runAt = new Date().toLocaleString();
+            const notRenamedMissingTarget = plan.missingTargetPlanned;
+            const afterLines = [
+                'Advanced review — rename complete',
+                `Run type: Apply (writes committed)`,
+                `Run timestamp: ${runAt}`,
+                `Source: ${plan.sourceTag || '(none)'}`,
+                `Default target: ${plan.defaultTarget || '(not set)'}`,
+                `Total queue rows: ${plan.totalRows}`,
+                `Not renamed: excluded by skip action: ${plan.userSkippedCount}`,
+                `Not renamed: missing target for apply: ${notRenamedMissingTarget}`,
+                `Tags renamed (row updates): ${appliedGuids.size} record(s) changed`,
+                `Skipped conflicts (per record+source target mismatch): ${skippedConflicts}`,
+                `Not renamed: apply returned no record change: ${skippedNoChange}`,
+                `Errors: ${failed}`,
+                `Writes to workspace: ${appliedGuids.size > 0 ? `yes (${appliedGuids.size} record(s))` : 'no'}`,
+                '',
+                'Planned run (for reference, before apply above):',
+                plan.preSummary,
+            ];
+            st.reviewGridOutput = afterLines.join('\n');
+            this._clearReviewGridQueue();
+            await this._refreshTagIndex({ quiet: true });
+            this._logRow('review-grid', 'summary', { recordGuid: '', recordName: '' }, st.reviewGridOutput);
+            this._setStatus(st.reviewGridOutput, { title: 'Review Grid', logged: true });
+        } finally {
+            st.running = false;
+        }
     }
 
     _tagScanOpts() {
@@ -1872,6 +2383,8 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
         st.reviewGridCollapsedSources = new Set();
         st.reviewGridMeta = 'No queue built.';
         st.reviewGridOutput = '';
+        st.excludedPickerOpen = false;
+        st.excludedPickerFilter = '';
         this._status = '';
     }
 
@@ -1907,7 +2420,7 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
     _captureFocusState(rootEl) {
         const active = document.activeElement;
         if (!(active instanceof HTMLInputElement) || !rootEl.contains(active)) return null;
-        const known = ['.nm-bm-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter'];
+        const known = ['.nm-bm-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-tr-exclude-picker-filter', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter'];
         const selector = known.find(sel => active.matches(sel));
         if (!selector) return null;
         return { selector, selectionStart: active.selectionStart, selectionEnd: active.selectionEnd };
@@ -1924,7 +2437,7 @@ ${this._status ? `<div class="nm-status">${this._escape(this._status)}</div>` : 
     }
 
     _captureScrollState(rootEl) {
-        const selectors = ['.nm-table-wrap', '.nm-list-rows', '.nm-log-table-wrap'];
+        const selectors = ['.nm-table-wrap', '.nm-list-rows', '.nm-log-table-wrap', '.nm-exclude-picker-panel'];
         const items = [];
         selectors.forEach(sel => {
             rootEl.querySelectorAll(sel).forEach((el, idx) => items.push({ sel, idx, top: el.scrollTop, left: el.scrollLeft }));
