@@ -1,4 +1,4 @@
-const NOTES_MANAGER_VERSION = '1.0.1';
+const NOTES_MANAGER_VERSION = '1.0.2';
 
 class NotesManagerPanel {
     constructor(plugin) {
@@ -46,6 +46,7 @@ class NotesManagerPanel {
             parentGuid: '',
             parentQuery: '',
             parentSearchOpen: false,
+            parentSuggestActiveIndex: -1,
             filterText: '',
             hideChildOfRows: false,
             rows: [],
@@ -73,7 +74,6 @@ class NotesManagerPanel {
             traceOpen: false,
             reviewGridSourceTag: '',
             reviewGridSourceSearchOpen: false,
-            reviewGridSourceSuggestActiveIndex: -1,
             reviewGridDefaultTarget: '',
             reviewGridFilter: '',
             reviewGridSort: 'title-asc',
@@ -158,7 +158,7 @@ class NotesManagerPanel {
             '.nm-parent-list{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:30;max-height:220px;overflow:auto;background:var(--cards-bg);border:1px solid var(--cards-border-color);border-radius:var(--ed-radius-block);box-shadow:var(--color-shadow-cards)}' +
             '.nm-parent-opt{display:block;width:100%;text-align:left;background:none;border:none;color:inherit;cursor:pointer;padding:8px 10px;font-size:13px;border-bottom:1px solid var(--cards-border-color)}' +
             '.nm-parent-opt:last-child{border-bottom:none}' +
-            '.nm-parent-opt:hover{background:var(--cards-hover-bg)}' +
+            '.nm-parent-opt:hover,.nm-parent-opt.nm-parent-opt--active{background:var(--cards-hover-bg)}' +
             '.nm-parent-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:2;background:none;border:none;cursor:pointer;color:var(--ed-gray-text);font-size:15px;line-height:1;opacity:.7;padding:2px 4px;border-radius:4px}' +
             '.nm-parent-clear:hover{opacity:1;background:var(--cards-hover-bg)}' +
             '.nm-exclude-picker-host{position:relative;width:100%}' +
@@ -351,14 +351,14 @@ ${pickerHtml}
         const visibleRows = st.rows.filter(r => this._assignRowVisible(r));
         const allVisibleChecked = visibleRows.length > 0 && visibleRows.every(r => r.checked);
         const selectedCount = st.rows.filter(r => r.checked).length;
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Assign Subpages</p><p class="nm-text">Preview assign/unassign actions before applying.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Parent note</label><div class="nm-parent-search-wrap nm-input-wrap"><input class="nm-input nm-ap-parent-search" type="text" value="${this._escape(st.parentQuery)}" placeholder="Type to search parent...">${st.parentQuery ? '<button class="nm-parent-clear" data-action="ap-parent-clear" title="Clear parent">×</button>' : ''}${parentHits.length ? `<div class="nm-parent-list">${parentHits.map(r => `<button class="nm-parent-opt" data-action="ap-parent-pick" data-guid="${this._escape(r.guid)}">${this._escape(r.fullTitle)}</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">Filter children</label><div class="nm-input-wrap"><input class="nm-input nm-ap-filter" type="text" value="${this._escape(st.filterText)}" placeholder="Filter by title...">${st.filterText ? '<button class="nm-parent-clear" data-action="ap-filter-clear" title="Clear filter">×</button>' : ''}</div></div></div><div class="nm-list-head"><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-all"${allVisibleChecked ? ' checked' : ''}> <span class="nm-muted">All visible</span></label><span class="nm-pill">${selectedCount} selected</span></div><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-hide-childof"${st.hideChildOfRows ? ' checked' : ''}> <span class="nm-muted">Hide child of:</span></label></div></div><div class="nm-table-wrap"><table class="nm-table"><thead><tr><th style="width:42px"></th><th>Title</th><th>Status</th></tr></thead><tbody>${visibleRows.map(r => `<tr><td><input type="checkbox" data-action="ap-toggle" data-guid="${this._escape(r.guid)}"${r.checked ? ' checked' : ''}></td><td>${this._escape(r.fullTitle)}</td><td>${this._assignStatusHtml(r)}</td></tr>`).join('') || '<tr><td colspan="3">No rows match.</td></tr>'}</tbody></table></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="ap-preview">Preview</button><button class="nm-btn" data-action="run-assign-parent"${(st.running || !st.parentGuid) ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._sharedTailHTML()}</div>`;
+        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Assign Subpages</p><p class="nm-text">Preview assign/unassign actions before applying.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Parent note</label><div class="nm-parent-search-wrap nm-input-wrap"><input class="nm-input nm-ap-parent-search" type="text" value="${this._escape(st.parentQuery)}" placeholder="Type to search parent..." title="Suggestions: ArrowDown/Up; Enter to pick; Esc to close.">${st.parentQuery ? '<button class="nm-parent-clear" data-action="ap-parent-clear" title="Clear parent">×</button>' : ''}${parentHits.length ? `<div class="nm-parent-list">${parentHits.map((r, i) => `<button type="button" class="nm-parent-opt${i === st.parentSuggestActiveIndex && st.parentSuggestActiveIndex >= 0 ? ' nm-parent-opt--active' : ''}" data-action="ap-parent-pick" data-guid="${this._escape(r.guid)}">${this._escape(r.fullTitle)}</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">Filter children</label><div class="nm-input-wrap"><input class="nm-input nm-ap-filter" type="text" value="${this._escape(st.filterText)}" placeholder="Filter by title...">${st.filterText ? '<button class="nm-parent-clear" data-action="ap-filter-clear" title="Clear filter">×</button>' : ''}</div></div></div><div class="nm-list-head"><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-all"${allVisibleChecked ? ' checked' : ''}> <span class="nm-muted">All visible</span></label><span class="nm-pill">${selectedCount} selected</span></div><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-hide-childof"${st.hideChildOfRows ? ' checked' : ''}> <span class="nm-muted">Hide child of:</span></label></div></div><div class="nm-table-wrap"><table class="nm-table"><thead><tr><th style="width:42px"></th><th>Title</th><th>Status</th></tr></thead><tbody>${visibleRows.map(r => `<tr><td><input type="checkbox" data-action="ap-toggle" data-guid="${this._escape(r.guid)}"${r.checked ? ' checked' : ''}></td><td>${this._escape(r.fullTitle)}</td><td>${this._assignStatusHtml(r)}</td></tr>`).join('') || '<tr><td colspan="3">No rows match.</td></tr>'}</tbody></table></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="ap-preview">Preview</button><button class="nm-btn" data-action="run-assign-parent"${(st.running || !st.parentGuid) ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._sharedTailHTML()}</div>`;
     }
 
     _buildTagRenameHTML() {
         const st = this._tagState;
         const suggestions = this._tagSuggestions().slice(0, 20);
         const advancedState = this._tagAdvancedState(st);
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Tag Rename (Quick)</p><p class="nm-text">Fast preview/apply rename flow. Advanced review remains separate.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Current tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-old" type="text" value="${this._escape(st.oldTag)}" placeholder="#current-tag" title="Cmd/Ctrl+Enter: preview. Cmd/Ctrl+Shift+Enter: apply.">${st.oldTag ? '<button class="nm-parent-clear" data-action="tr-old-clear" title="Clear current tag">×</button>' : ''}${(st.oldSearchOpen && suggestions.length) ? `<div class="nm-parent-list">${suggestions.map(s => `<button class="nm-parent-opt" data-action="tr-old-pick" data-tag="${this._escape(s.tag)}">#${this._escape(s.tag)} (${s.count})</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">New tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-new" type="text" value="${this._escape(st.newTag)}" placeholder="#new-tag" title="Cmd/Ctrl+Enter: preview. Cmd/Ctrl+Shift+Enter: apply.">${st.newTag ? '<button class="nm-parent-clear" data-action="tr-new-clear" title="Clear new tag">×</button>' : ''}</div></div></div><div class="nm-inline" style="margin-bottom:8px;"><button class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div><div class="nm-adv"><div class="nm-adv-head" data-action="tr-toggle-advanced"><span class="nm-muted">${st.advancedOpen ? '▾' : '▸'} Matching options</span><span class="nm-muted">${this._escape(advancedState)}</span></div>${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-case"${st.caseSensitive ? ' checked' : ''}> <span class="nm-muted">Case-sensitive matching</span></label></div><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-exclude-choice"${st.excludeChoiceValues ? ' checked' : ''}> <span class="nm-muted">Exclude choice/enum from tag list</span></label></div>${this._buildExcludedCollectionsFieldHTML()}</div></div>` : ''}</div><div style="height:12px;"></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-preview" title="Cmd/Ctrl+Enter">Preview</button><button class="nm-btn" data-action="tr-apply"${st.running ? ' disabled' : ''} title="Cmd/Ctrl+Shift+Enter">Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._sharedTailHTML()}</div>`;
+        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Tag Rename (Quick)</p><p class="nm-text">Fast preview/apply rename flow. Advanced review remains separate.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Current tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-old" type="text" value="${this._escape(st.oldTag)}" placeholder="#current-tag" title="Cmd/Ctrl+Enter: preview. Cmd/Ctrl+Shift+Enter: apply. Suggestions: ArrowDown/Up; Enter pick; Esc close.">${st.oldTag ? '<button class="nm-parent-clear" data-action="tr-old-clear" title="Clear current tag">×</button>' : ''}${(st.oldSearchOpen && suggestions.length) ? `<div class="nm-parent-list">${suggestions.map((s, i) => `<button type="button" class="nm-parent-opt${st.suggestActiveIndex === i ? ' nm-parent-opt--active' : ''}" data-action="tr-old-pick" data-tag="${this._escape(s.tag)}">#${this._escape(s.tag)} (${s.count})</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">New tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-new" type="text" value="${this._escape(st.newTag)}" placeholder="#new-tag" title="Cmd/Ctrl+Enter: preview. Cmd/Ctrl+Shift+Enter: apply.">${st.newTag ? '<button class="nm-parent-clear" data-action="tr-new-clear" title="Clear new tag">×</button>' : ''}</div></div></div><div class="nm-inline" style="margin-bottom:8px;"><button class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div><div class="nm-adv"><div class="nm-adv-head" data-action="tr-toggle-advanced"><span class="nm-muted">${st.advancedOpen ? '▾' : '▸'} Matching options</span><span class="nm-muted">${this._escape(advancedState)}</span></div>${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-case"${st.caseSensitive ? ' checked' : ''}> <span class="nm-muted">Case-sensitive matching</span></label></div><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-exclude-choice"${st.excludeChoiceValues ? ' checked' : ''}> <span class="nm-muted">Exclude choice/enum from tag list</span></label></div>${this._buildExcludedCollectionsFieldHTML()}</div></div>` : ''}</div><div style="height:12px;"></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-preview" title="Cmd/Ctrl+Enter">Preview</button><button class="nm-btn" data-action="tr-apply"${st.running ? ' disabled' : ''} title="Cmd/Ctrl+Shift+Enter">Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._sharedTailHTML()}</div>`;
     }
 
     _buildTagReviewHTML() {
@@ -382,9 +382,9 @@ ${pickerHtml}
 <div class="nm-field">
 <label class="nm-label">Current tag</label>
 <div class="nm-input-wrap">
-<input class="nm-input nm-tr-old" type="text" value="${this._escape(st.oldTag)}" placeholder="#tag-to-trace">
+<input class="nm-input nm-tr-old" type="text" value="${this._escape(st.oldTag)}" placeholder="#tag-to-trace" title="Suggestions: ArrowDown/Up; Enter pick; Esc close.">
 ${st.oldTag ? '<button class="nm-parent-clear" data-action="tr-old-clear" title="Clear current tag">×</button>' : ''}
-${(st.oldSearchOpen && suggestions.length) ? `<div class="nm-parent-list">${suggestions.map(s => `<button class="nm-parent-opt" data-action="tr-old-pick" data-tag="${this._escape(s.tag)}">#${this._escape(s.tag)} (${s.count})</button>`).join('')}</div>` : ''}
+${(st.oldSearchOpen && suggestions.length) ? `<div class="nm-parent-list">${suggestions.map((s, i) => `<button type="button" class="nm-parent-opt${st.suggestActiveIndex === i ? ' nm-parent-opt--active' : ''}" data-action="tr-old-pick" data-tag="${this._escape(s.tag)}">#${this._escape(s.tag)} (${s.count})</button>`).join('')}</div>` : ''}
 </div>
 </div>
 </div>
@@ -408,7 +408,7 @@ ${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div cl
 <div class="nm-field">
 <label class="nm-label">#source-tag</label>
 <div class="nm-input-wrap nm-rg-source-host">
-<input class="nm-input nm-rg-source" type="text" value="${this._escape(st.reviewGridSourceTag)}" placeholder="#source-tag" title="Suggestions from tag index; Enter runs Find matches. Cleared field drops the queue." autocomplete="off">
+<input class="nm-input nm-rg-source" type="text" value="${this._escape(st.reviewGridSourceTag)}" placeholder="#source-tag" title="Tag index: ArrowDown opens list; arrows navigate; Enter picks when list open, else Find matches; Esc closes list. Clear drops queue." autocomplete="off">
 ${st.reviewGridSourceTag ? '<button class="nm-parent-clear" data-action="tr-rg-source-clear" title="Clear source tag">×</button>' : ''}
 <div class="nm-rg-source-suggest nm-rg-suggest" aria-hidden="true"></div>
 </div>
@@ -501,13 +501,13 @@ ${this._sharedTailHTML()}
                 case 'bm-preview': await this._previewBulkMove(); if (this._panel) this._render(this._panel); break;
                 case 'run-bulk-move': await this._runBulkMove(); if (this._panel) this._render(this._panel); break;
                 case 'ap-toggle': { const row = this._assignState.rows.find(r => r.guid === target.dataset.guid); if (row) { row.checked = !!target.checked; if (this._panel) this._render(this._panel); } break; }
-                case 'ap-parent-pick': { const picked = this._assignState.recordMap.get(target.dataset.guid); if (picked) { this._assignState.parentGuid = picked.guid; this._assignState.parentQuery = picked.fullTitle; this._assignState.parentSearchOpen = false; this._rebuildAssignRows(); if (this._panel) this._render(this._panel); } break; }
-                case 'ap-parent-clear': this._assignState.parentGuid = ''; this._assignState.parentQuery = ''; this._assignState.parentSearchOpen = false; this._rebuildAssignRows(); if (this._panel) this._render(this._panel); break;
+                case 'ap-parent-pick': { const picked = this._assignState.recordMap.get(target.dataset.guid); if (picked) { this._assignState.parentGuid = picked.guid; this._assignState.parentQuery = picked.fullTitle; this._assignState.parentSearchOpen = false; this._assignState.parentSuggestActiveIndex = -1; this._rebuildAssignRows(); if (this._panel) this._render(this._panel); } break; }
+                case 'ap-parent-clear': this._assignState.parentGuid = ''; this._assignState.parentQuery = ''; this._assignState.parentSearchOpen = false; this._assignState.parentSuggestActiveIndex = -1; this._rebuildAssignRows(); if (this._panel) this._render(this._panel); break;
                 case 'ap-filter-clear': this._assignState.filterText = ''; if (this._panel) this._render(this._panel); break;
                 case 'ap-preview': this._previewAssign(); if (this._panel) this._render(this._panel); break;
                 case 'run-assign-parent': await this._runAssignParent(); if (this._panel) this._render(this._panel); break;
-                case 'tr-old-clear': this._tagState.oldTag = ''; if (this._panel) this._render(this._panel); break;
-                case 'tr-old-pick': this._tagState.oldTag = `#${target.dataset.tag || ''}`; this._tagState.oldSearchOpen = false; if (this._panel) this._render(this._panel); break;
+                case 'tr-old-clear': this._tagState.oldTag = ''; this._tagState.oldSearchOpen = false; this._tagState.suggestActiveIndex = -1; if (this._panel) this._render(this._panel); break;
+                case 'tr-old-pick': this._tagState.oldTag = `#${target.dataset.tag || ''}`; this._tagState.oldSearchOpen = false; this._tagState.suggestActiveIndex = -1; if (this._panel) this._render(this._panel); break;
                 case 'tr-new-clear': this._tagState.newTag = ''; if (this._panel) this._render(this._panel); break;
                 case 'tr-exclude-picker-toggle': {
                     e.stopPropagation();
@@ -549,14 +549,12 @@ ${this._sharedTailHTML()}
                 case 'tr-rg-source-clear':
                     this._tagState.reviewGridSourceTag = '';
                     this._tagState.reviewGridSourceSearchOpen = false;
-                    this._tagState.reviewGridSourceSuggestActiveIndex = -1;
                     this._clearReviewGridQueue();
                     if (this._panel) this._render(this._panel);
                     break;
                 case 'tr-rg-source-pick':
                     this._tagState.reviewGridSourceTag = `#${target.dataset.tag || ''}`;
                     this._tagState.reviewGridSourceSearchOpen = false;
-                    this._tagState.reviewGridSourceSuggestActiveIndex = -1;
                     void (async () => {
                         await this._reviewGridBuild();
                         if (this._panel) this._render(this._panel);
@@ -662,8 +660,52 @@ ${this._sharedTailHTML()}
 
         const apParent = el.querySelector('.nm-ap-parent-search');
         if (apParent) {
-            apParent.addEventListener('input', () => { this._assignState.parentQuery = apParent.value; this._assignState.parentGuid = ''; this._assignState.parentSearchOpen = true; this._rebuildAssignRows(); if (this._panel) this._render(this._panel); }, { signal });
-            apParent.addEventListener('keydown', e => { if (e.key !== 'Enter') return; e.preventDefault(); const hit = this._assignParentHits()[0]; if (!hit) return; this._assignState.parentGuid = hit.guid; this._assignState.parentQuery = hit.fullTitle; this._assignState.parentSearchOpen = false; this._rebuildAssignRows(); if (this._panel) this._render(this._panel); }, { signal });
+            apParent.addEventListener('input', () => {
+                this._assignState.parentQuery = apParent.value;
+                this._assignState.parentGuid = '';
+                this._assignState.parentSearchOpen = true;
+                this._assignState.parentSuggestActiveIndex = -1;
+                this._rebuildAssignRows();
+                if (this._panel) this._render(this._panel);
+            }, { signal });
+            apParent.addEventListener('keydown', e => {
+                const hits = this._assignParentHits().slice(0, 20);
+                if (e.key === 'Escape') {
+                    if (!this._assignState.parentSearchOpen) return;
+                    e.preventDefault();
+                    this._assignState.parentSearchOpen = false;
+                    this._assignState.parentSuggestActiveIndex = -1;
+                    if (this._panel) this._render(this._panel);
+                    return;
+                }
+                if (e.key === 'ArrowDown') {
+                    if (!hits.length) return;
+                    e.preventDefault();
+                    this._assignState.parentSearchOpen = true;
+                    this._assignState.parentSuggestActiveIndex = Math.min(hits.length - 1, this._assignState.parentSuggestActiveIndex + 1);
+                    if (this._panel) this._render(this._panel);
+                    return;
+                }
+                if (e.key === 'ArrowUp') {
+                    if (!hits.length) return;
+                    e.preventDefault();
+                    this._assignState.parentSearchOpen = true;
+                    this._assignState.parentSuggestActiveIndex = Math.max(0, this._assignState.parentSuggestActiveIndex - 1);
+                    if (this._panel) this._render(this._panel);
+                    return;
+                }
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                const idx = this._assignState.parentSuggestActiveIndex >= 0 ? this._assignState.parentSuggestActiveIndex : 0;
+                const hit = hits[idx];
+                if (!hit) return;
+                this._assignState.parentGuid = hit.guid;
+                this._assignState.parentQuery = hit.fullTitle;
+                this._assignState.parentSearchOpen = false;
+                this._assignState.parentSuggestActiveIndex = -1;
+                this._rebuildAssignRows();
+                if (this._panel) this._render(this._panel);
+            }, { signal });
         }
         const apFilter = el.querySelector('.nm-ap-filter');
         if (apFilter) apFilter.addEventListener('input', () => { this._assignState.filterText = apFilter.value; if (this._panel) this._render(this._panel); }, { signal });
@@ -697,6 +739,14 @@ ${this._sharedTailHTML()}
                     }
                 }
                 const suggestions = this._tagSuggestions();
+                if (e.key === 'Escape') {
+                    if (!this._tagState.oldSearchOpen) return;
+                    e.preventDefault();
+                    this._tagState.oldSearchOpen = false;
+                    this._tagState.suggestActiveIndex = -1;
+                    if (this._panel) this._render(this._panel);
+                    return;
+                }
                 if (e.key === 'ArrowDown') {
                     e.preventDefault();
                     if (!suggestions.length) return;
@@ -714,6 +764,7 @@ ${this._sharedTailHTML()}
                     return;
                 }
                 if (e.key === 'Enter') {
+                    if (!suggestions.length) return;
                     e.preventDefault();
                     const idx = this._tagState.suggestActiveIndex >= 0 ? this._tagState.suggestActiveIndex : 0;
                     const pick = suggestions[idx];
@@ -1358,6 +1409,27 @@ ${this._sharedTailHTML()}
         return originalValue.trim().startsWith('#') ? `#${newTag}` : newTag;
     }
 
+    /**
+     * Dictionary order for tag names: English locale, numeric chunks (tag-2 before tag-10),
+     * case-insensitive, then exact spelling if two tags only differ by case.
+     * Avoids `sensitivity: 'base'` with the default locale, which can rank strings oddly (e.g. author before ai).
+     */
+    _compareTagNamesForSort(tagA, tagB) {
+        const ta = String(tagA ?? '');
+        const tb = String(tagB ?? '');
+        const la = ta.toLowerCase();
+        const lb = tb.toLowerCase();
+        const c = la.localeCompare(lb, 'en', { numeric: true });
+        if (c !== 0) return c;
+        return ta.localeCompare(tb, 'en', { numeric: true });
+    }
+
+    /** Applied on every tag reindex (Refresh index). */
+    _sortTagIndexEntries(entries) {
+        if (!Array.isArray(entries)) return [];
+        return [...entries].sort((a, b) => this._compareTagNamesForSort(a.tag, b.tag));
+    }
+
     async _refreshTagIndex(refreshOptions = {}) {
         const quiet = !!refreshOptions.quiet;
         const st = this._tagState;
@@ -1378,12 +1450,13 @@ ${this._sharedTailHTML()}
                         tagToRecordGuids.get(tag).add(record.guid);
                     }
                 }, scope.collections);
-                st.tagIndex = [...tagToRecordGuids.entries()]
-                    .map(([tag, guidSet]) => ({ tag, count: guidSet.size }))
-                    .sort((a, b) => a.tag.localeCompare(b.tag));
+                const built = [...tagToRecordGuids.entries()]
+                    .map(([tag, guidSet]) => ({ tag: String(tag ?? '').trim(), count: guidSet.size }))
+                    .filter(e => e.tag);
+                st.tagIndex = this._sortTagIndexEntries(built);
                 const choiceNote = scanOpts.excludeChoiceValues ? ' (choice/enum excluded)' : '';
                 const excludedNote = scope.excludedCount ? ` Excluded collections: ${scope.excludedCount}.` : '';
-                st.indexMeta = `Loaded ${st.tagIndex.length} tags from ${stats.recordCount} records in ${scope.collections.length} user collections.${choiceNote}${excludedNote}${scope.warning ? ` ${scope.warning}` : ''}`;
+                st.indexMeta = `Loaded ${st.tagIndex.length} tags from ${stats.recordCount} records in ${scope.collections.length} user collections.${choiceNote}${excludedNote}${scope.warning ? ` ${scope.warning}` : ''} Tags A–Z (case-insensitive).`;
                 if (!quiet) {
                     this._logRow('tag-index', 'applied', { recordGuid: '', recordName: '' }, st.indexMeta);
                     this._setStatus(st.indexMeta, { title: 'Tag index', logged: true });
@@ -1448,7 +1521,10 @@ ${this._sharedTailHTML()}
             for (const prop of properties) {
                 const propertyName = String(prop?.name ?? '');
                 const choicesList = typeof prop.choices === 'function' ? prop.choices() : null;
-                const isChoiceProperty = Array.isArray(choicesList) || typeof prop.selectedChoiceLabels === 'function' || typeof prop.selectedChoices === 'function';
+                const isChoiceProperty =
+                    Array.isArray(choicesList) ||
+                    typeof prop.selectedChoiceLabels === 'function' ||
+                    typeof prop.selectedChoices === 'function';
                 if (!opts.excludeChoiceValues && isChoiceProperty) {
                     for (const label of (prop.selectedChoiceLabels?.() || [])) {
                         if (this.isSourceTagPatternMatch(label, oldTag, false)) addHit({ recordGuid, recordName, source: 'property-choice-label', propertyName, value: String(label) });
@@ -1458,7 +1534,7 @@ ${this._sharedTailHTML()}
                         if (raw && this.isSourceTagPatternMatch(raw, oldTag, false)) addHit({ recordGuid, recordName, source: 'property-choice-id', propertyName, value: raw });
                     }
                 }
-                if (this.shouldScanTextPropertyForTags(prop)) {
+                if (this.shouldScanTextPropertyForTags(prop) && !this._shouldSuppressTextLikeTagsFromExcludedLabelEnum(prop, opts)) {
                     for (const value of (prop.texts?.() || [])) {
                         if (this.isSourceTagPatternMatch(value, oldTag, false)) addHit({ recordGuid, recordName, source: 'property-text', propertyName, value: String(value) });
                     }
@@ -1502,7 +1578,7 @@ ${this._sharedTailHTML()}
             'title-desc': (a, b) => (b.recordName || '').localeCompare(a.recordName || ''),
             'source-asc': (a, b) => (a.source || '').localeCompare(b.source || ''),
             'source-desc': (a, b) => (b.source || '').localeCompare(a.source || ''),
-            'tag-group': (a, b) => this.cleanTag(a.sourceTag || '').localeCompare(this.cleanTag(b.sourceTag || '')) || (a.recordName || '').localeCompare(b.recordName || ''),
+            'tag-group': (a, b) => this._compareTagNamesForSort(this.cleanTag(a.sourceTag || ''), this.cleanTag(b.sourceTag || '')) || (a.recordName || '').localeCompare(b.recordName || ''),
         }[st.reviewGridSort || 'title-asc'];
         if (cmp) rows.sort(cmp);
         return rows;
@@ -1524,7 +1600,7 @@ ${this._sharedTailHTML()}
         const sortedGroups = [...grouped.entries()].sort((a, b) => {
             const ak = a[0] === '(none)' ? '\uFFFF' : a[0];
             const bk = b[0] === '(none)' ? '\uFFFF' : b[0];
-            return ak.localeCompare(bk);
+            return this._compareTagNamesForSort(ak, bk);
         });
         for (const [tag, list] of sortedGroups) {
             const collapsed = st.reviewGridCollapsedSources.has(tag);
@@ -1546,7 +1622,7 @@ ${this._sharedTailHTML()}
         const ovRaw = row.overrideTarget || '';
         const hasOverride = !!this.cleanTag(ovRaw);
         const clearOverride = hasOverride ? `<button type="button" class="nm-parent-clear" data-action="tr-rg-override-clear" data-id="${this._escape(row.id)}" title="Clear override tag">×</button>` : '';
-        return `<tr><td>${titleOpen}</td><td>${this._escape(row.preview || '')}</td><td><input type="checkbox" data-action="tr-rg-default" data-id="${this._escape(row.id)}"${row.action === 'default' ? ' checked' : ''}></td><td><input type="checkbox" data-action="tr-rg-skip" data-id="${this._escape(row.id)}"${row.action === 'skip' ? ' checked' : ''}></td><td><div class="nm-rg-override-wrap"><div class="nm-input-wrap"><input class="nm-input nm-rg-row-target" data-id="${this._escape(row.id)}" type="text" value="${this._escape(ovRaw)}" placeholder="override tag" title="Focus or click for tag suggestions from the index; ArrowDown opens the list; Enter picks when highlighted" autocomplete="off">${clearOverride}</div><div class="nm-rg-override-suggest nm-rg-suggest" aria-hidden="true"></div></div></td></tr>`;
+        return `<tr><td>${titleOpen}</td><td>${this._escape(row.preview || '')}</td><td><input type="checkbox" data-action="tr-rg-default" data-id="${this._escape(row.id)}"${row.action === 'default' ? ' checked' : ''}></td><td><input type="checkbox" data-action="tr-rg-skip" data-id="${this._escape(row.id)}"${row.action === 'skip' ? ' checked' : ''}></td><td><div class="nm-rg-override-wrap"><div class="nm-input-wrap"><input class="nm-input nm-rg-row-target" data-id="${this._escape(row.id)}" type="text" value="${this._escape(ovRaw)}" placeholder="override tag" title="Tag index: ArrowDown opens; arrows navigate; Enter picks; Esc closes list." autocomplete="off">${clearOverride}</div><div class="nm-rg-override-suggest nm-rg-suggest" aria-hidden="true"></div></div></td></tr>`;
     }
 
     _clearReviewGridQueue() {
@@ -1587,7 +1663,7 @@ ${this._sharedTailHTML()}
             overrideTargetCounts.set(tag, (overrideTargetCounts.get(tag) || 0) + 1);
         }
         const overrideSummary = [...overrideTargetCounts.entries()]
-            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+            .sort((a, b) => b[1] - a[1] || this._compareTagNamesForSort(a[0], b[0]))
             .map(([tag, count]) => `- ${tag}: ${count}`)
             .join('\n');
         const preLines = [
@@ -1669,7 +1745,9 @@ ${this._sharedTailHTML()}
                         const aStarts = a.tag.toLowerCase().startsWith(q) ? 0 : 1;
                         const bStarts = b.tag.toLowerCase().startsWith(q) ? 0 : 1;
                         if (aStarts !== bStarts) return aStarts - bStarts;
-                        return a.tag.localeCompare(b.tag);
+                        const byName = this._compareTagNamesForSort(a.tag, b.tag);
+                        if (byName !== 0) return byName;
+                        return b.count - a.count;
                     })
                     .slice(0, 30);
             if (!source.length) {
@@ -1688,10 +1766,22 @@ ${this._sharedTailHTML()}
             });
         };
         const onKeydown = ev => {
-            const open = suggestEl.style.display !== 'none' && items.length > 0;
+            const suggestVisible = suggestEl.style.display !== 'none';
+            const open = suggestVisible && items.length > 0;
+            if (ev.key === 'Escape') {
+                if (suggestVisible || items.length > 0) {
+                    ev.preventDefault();
+                    close();
+                }
+                return;
+            }
             if (!open && ev.key === 'ArrowDown') {
                 ev.preventDefault();
                 render();
+                if (items.length > 0) {
+                    active = 0;
+                    highlight();
+                }
                 return;
             }
             if (!open) return;
@@ -1704,13 +1794,10 @@ ${this._sharedTailHTML()}
                 active = active > 0 ? active - 1 : items.length - 1;
                 highlight();
             } else if (ev.key === 'Enter') {
-                if (active >= 0 && items[active]) {
-                    ev.preventDefault();
-                    choose(items[active].tag);
-                }
-            } else if (ev.key === 'Escape') {
+                if (!open) return;
                 ev.preventDefault();
-                close();
+                const pick = items[active >= 0 ? active : 0];
+                if (pick) choose(pick.tag);
             }
         };
         input.addEventListener('input', render);
@@ -1785,6 +1872,7 @@ ${this._sharedTailHTML()}
             const properties = record.getAllProperties?.() || [];
             for (const prop of properties) {
                 const propertyName = String(prop?.name ?? '');
+                if (opts.excludeChoiceValues && this._hasArrayChoicesProperty(prop)) continue;
                 if (!opts.excludeChoiceValues) {
                     const labels = prop.selectedChoiceLabels?.() ?? [];
                     const ids = prop.selectedChoices?.() ?? [];
@@ -1801,6 +1889,7 @@ ${this._sharedTailHTML()}
                     }
                 }
                 if (!this.shouldScanTextPropertyForTags(prop)) continue;
+                if (this._shouldSuppressTextLikeTagsFromExcludedLabelEnum(prop, opts)) continue;
                 const texts = prop.texts?.() || [];
                 for (const value of texts) {
                     const v = String(value ?? '');
@@ -1987,8 +2076,8 @@ ${this._sharedTailHTML()}
         for (const prop of properties) {
             try {
                 const choicesList = typeof prop.choices === 'function' ? prop.choices() : null;
-                const isChoiceProperty = Array.isArray(choicesList);
-                if (opts.excludeChoiceValues && isChoiceProperty) continue;
+                const hasArrayChoices = Array.isArray(choicesList);
+                if (opts.excludeChoiceValues && hasArrayChoices) continue;
                 if (!opts.excludeChoiceValues) {
                     const labels = prop.selectedChoiceLabels?.() ?? [];
                     const ids = prop.selectedChoices?.() ?? [];
@@ -2001,6 +2090,7 @@ ${this._sharedTailHTML()}
                     }
                 }
                 if (!this.shouldScanTextPropertyForTags(prop)) continue;
+                if (this._shouldSuppressTextLikeTagsFromExcludedLabelEnum(prop, opts)) continue;
                 for (const value of (prop.texts?.() || [])) {
                     const tag = this.tagCandidateFromPropertyValue(value);
                     if (tag) tags.add(tag);
@@ -2016,6 +2106,27 @@ ${this._sharedTailHTML()}
             } catch (_) {}
         }
         return tags;
+    }
+
+    /** Same notion of “choice field” as the original tag index: `choices()` returns an array. */
+    _hasArrayChoicesProperty(prop) {
+        if (!prop) return false;
+        const choicesList = typeof prop.choices === 'function' ? prop.choices() : null;
+        return Array.isArray(choicesList);
+    }
+
+    /**
+     * When excluding choice/enum from the tag list, Thymer “Label” enums may still match
+     * `shouldScanTextPropertyForTags` and leak values via `texts()` / `values()` even though
+     * `choices()` is not an array. Suppress only that case — do not use selection APIs alone
+     * (many property types expose them), or the index shrinks drastically vs the original.
+     */
+    _shouldSuppressTextLikeTagsFromExcludedLabelEnum(prop, opts) {
+        if (!opts || !opts.excludeChoiceValues) return false;
+        if (this._hasArrayChoicesProperty(prop)) return false;
+        const name = String(prop?.name ?? '').toLowerCase().trim();
+        if (!name.includes('label') || name.includes('email')) return false;
+        return typeof prop.selectedChoiceLabels === 'function' || typeof prop.selectedChoices === 'function';
     }
 
     shouldScanTextPropertyForTags(prop) {
@@ -2146,6 +2257,11 @@ ${this._sharedTailHTML()}
         return this._tagSuggestionsForValue(q);
     }
 
+    /**
+     * Tags for the incremental dropdown (Current tag on tag rename / tag review, etc.).
+     * Uses `tagIndex` from the last refresh; empty query = first slice of that sorted list.
+     * With a query: prefix matches first, then **A–Z** (`_compareTagNamesForSort`), then usage count.
+     */
     _tagSuggestionsForValue(rawValue) {
         const q = this.cleanTag(rawValue).toLowerCase();
         const list = Array.isArray(this._tagState.tagIndex) ? this._tagState.tagIndex : [];
@@ -2156,7 +2272,9 @@ ${this._sharedTailHTML()}
                 const as = a.tag.toLowerCase().startsWith(q) ? 0 : 1;
                 const bs = b.tag.toLowerCase().startsWith(q) ? 0 : 1;
                 if (as !== bs) return as - bs;
-                return b.count - a.count || a.tag.localeCompare(b.tag);
+                const byName = this._compareTagNamesForSort(a.tag, b.tag);
+                if (byName !== 0) return byName;
+                return b.count - a.count;
             });
     }
 
@@ -2322,6 +2440,7 @@ ${this._sharedTailHTML()}
             st.parentQuery = '';
         }
         st.parentSearchOpen = false;
+        st.parentSuggestActiveIndex = -1;
         this._rebuildAssignRows();
         return allRecords;
     }
@@ -2354,6 +2473,7 @@ ${this._sharedTailHTML()}
         st.parentGuid = '';
         st.parentQuery = '';
         st.parentSearchOpen = false;
+        st.parentSuggestActiveIndex = -1;
         st.filterText = '';
         st.hideChildOfRows = !!this._settings.assignHideChildOfDefault;
         st.rows = [];
@@ -2375,7 +2495,6 @@ ${this._sharedTailHTML()}
         st.traceOpen = false;
         st.reviewGridSourceTag = '';
         st.reviewGridSourceSearchOpen = false;
-        st.reviewGridSourceSuggestActiveIndex = -1;
         st.reviewGridDefaultTarget = '';
         st.reviewGridFilter = '';
         st.reviewGridSort = 'title-asc';

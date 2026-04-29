@@ -1,7 +1,7 @@
 {
   "id": "thymer-notes-management",
   "name": "Notes Management",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Bulk move notes, assign subpages, and run tag rename or review from a native Thymer panel.",
   "main": "notes-manager-plugin.js"
 }

@@ -4,15 +4,26 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Version
 
-- **Current version:** `1.0.1`
+- **Current version:** `1.0.2`
 
-### What’s new in 1.0.1
+### What’s new in 1.0.2
 
-- **Tag rename (quick):** Use **⌘/Ctrl+Enter** for preview and **⌘/Ctrl+Shift+Enter** to apply from the Current or New tag fields (same idea as the original Tag Renamer). Buttons show the same shortcuts in their tooltips.
-- **Tag review — Review Grid:** Clearer **queue summary** (visible vs total rows, plus how many rows are default, skip, or override). **Preview** now matches the detailed “apply plan” style from the original (targets, skips, warnings). **Override** uses tag-index suggestions (focus or type; arrow keys when the list is open); a **gray ×** appears when there is an override so you can clear it in one click.
-- **Tag review — finding matches:** **Enter** on the source tag runs **Find matches**; clearing the source drops the stale queue. **Enter** on the default target re-runs **Find matches** when a source is set. Source field also offers the same style of tag suggestions as overrides.
-- **Tag review — after Rename:** The grid queue clears when a run finishes, the tag index refreshes in the background, and the results panel shows a fuller summary (including conflicts and rows that did not change).
-- **Group by tag:** Groups follow each row’s **actual matched tag**, with group actions (default/skip for a group), optional **open this record** from the title when grouped, and sorting aligned with the original behavior.
+**Fixed**
+
+- **Tag list with “Exclude choice/enum” on:** The tag index again matches the usual size you’d expect, while still keeping true choice/enum values out of the list. Label-style fields no longer sneak extra tags into the index through the wrong path.
+- **Tag trace and Review Grid “Find matches”:** When choice/enum is excluded from the tag list, those views follow the same rules as the index so you don’t see stray matches from fields that shouldn’t count.
+
+**Updates**
+
+- **Suggestion lists everywhere:** Same idea on **Current tag**, **Assign subpages → Parent note**, **Review Grid** source/default/override fields: arrow keys move the highlight, **Enter** picks (or runs **Find matches** on the source field when the floating list isn’t open), **Esc** closes the list. The row under the keyboard is highlighted so you can see what you’re about to pick.
+
+### What was new in 1.0.1
+
+- **Tag rename (quick):** **⌘/Ctrl+Enter** for preview and **⌘/Ctrl+Shift+Enter** to apply from the Current or New tag fields. Buttons show the same shortcuts in their tooltips.
+- **Tag review — Review Grid:** Clearer **queue summary**, **Preview** aligned with a detailed apply plan, **Override** with tag-index suggestions and a **×** to clear.
+- **Tag review — finding matches:** **Enter** on the source tag runs **Find matches**; clearing the source drops the queue; default target **Enter** re-runs find when a source is set.
+- **After grid rename:** Queue clears, tag index refreshes quietly, fuller summary in the grid output.
+- **Group by tag:** Groups follow each row’s matched tag, with group actions and optional open-record from the title.
 
 ## Included Tools
 
@@ -46,7 +57,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ### Assign Subpages
 
-- Incremental parent note search with in-field clear button.
+- Incremental parent note search with in-field clear button; when the hit list is open, use arrow keys and **Enter** to pick, **Esc** to close the list.
 - Child filtering with in-field clear button.
 - Supports assign and unassign flows.
 - All-visible checkbox support.
@@ -56,7 +67,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 ### Tag Rename (Quick)
 
 - `Current tag` (`#current-tag`) and `New tag` inputs.
-- Incremental suggestions for current tag.
+- Incremental suggestions for current tag (arrows + **Enter** to pick, **Esc** to close the list).
 - **Keyboard:** **⌘/Ctrl+Enter** = preview, **⌘/Ctrl+Shift+Enter** = apply (from either tag field when you’re on this screen).
 - Matching options (collapsible):
   - Case-sensitive matching
