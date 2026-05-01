@@ -1,4 +1,4 @@
-const NOTES_MANAGER_VERSION = '1.0.2';
+const NOTES_MANAGER_VERSION = '1.0.3';
 
 class NotesManagerPanel {
     constructor(plugin) {
@@ -53,6 +53,16 @@ class NotesManagerPanel {
             previewRows: [],
         };
 
+        this._tagMergeState = {
+            rows: [],
+            parseNotes: [],
+            fileName: '',
+            output: '',
+            running: false,
+            rowIdSeq: 0,
+            totalsOpen: false,
+        };
+
         this._tagState = {
             initialized: false,
             running: false,
@@ -84,6 +94,20 @@ class NotesManagerPanel {
             excludedPickerOpen: false,
             excludedPickerFilter: '',
             excludePickerCollections: [],
+            tagAnalyzerThreshold: 5,
+            tagAnalyzerSimPercent: 35,
+            tagAnalyzerPhase: 'setup',
+            tagAnalyzerClusters: [],
+            tagAnalyzerOrphans: [],
+            tagAnalyzerOpenClusterId: null,
+            tagAnalyzerReplacements: {},
+            tagAnalyzerExportVisible: false,
+            tagAnalyzerLastLowCount: 0,
+            tagAnalyzerClusterOrder: 'processed',
+            tagAnalyzerManualOpen: false,
+            tagAnalyzerPickFilter: '',
+            tagAnalyzerPickSelected: [],
+            tagAnalyzerNextClusterId: 100000,
         };
     }
 
@@ -179,11 +203,31 @@ class NotesManagerPanel {
             '.nm-adv{margin-top:10px;border:1px solid var(--cards-border-color);border-radius:var(--ed-radius-block);padding:8px}' +
             '.nm-adv-head{display:flex;align-items:center;justify-content:space-between;cursor:pointer}' +
             '.nm-adv-body{margin-top:8px}' +
-            '@media(max-width:700px){.nm-field-grid{grid-template-columns:1fr}}'
+            '@media(max-width:700px){.nm-field-grid{grid-template-columns:1fr}}' +
+            '.nm-ta-stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}' +
+            '@media(max-width:560px){.nm-ta-stat-grid{grid-template-columns:repeat(2,1fr)}}' +
+            '.nm-ta-stat-grid--4{grid-template-columns:repeat(4,1fr)}' +
+            '@media(max-width:560px){.nm-ta-stat-grid--4{grid-template-columns:repeat(2,1fr)}}' +
+            '.nm-ta-stat-card{border:1px solid var(--cards-border-color);border-radius:var(--ed-radius-block);padding:8px;text-align:center}' +
+            '.nm-ta-stat-val{font-size:1.25rem;font-weight:700;line-height:1.2}' +
+            '.nm-ta-stat-lbl{font-size:11px;opacity:.65;text-transform:uppercase;margin-top:4px}' +
+            '.nm-ta-cluster{border:1px solid var(--cards-border-color);border-radius:var(--ed-radius-block);margin-bottom:8px;overflow:hidden}' +
+            '.nm-ta-cluster--open{border-color:color-mix(in srgb,var(--cards-border-color) 40%,var(--ed-accent-color,#5b9cf5))}' +
+            '.nm-ta-cluster-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;cursor:pointer;gap:8px;flex-wrap:wrap}' +
+            '.nm-ta-cluster-head:hover{background:var(--cards-hover-bg)}' +
+            '.nm-ta-cluster-detail{padding:0 12px 12px;border-top:1px solid var(--cards-border-color);display:none}' +
+            '.nm-ta-cluster-detail--open{display:block}' +
+            '.nm-ta-pills{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}' +
+            '.nm-ta-pill{font-size:12px;padding:4px 10px;border:1px solid var(--cards-border-color);border-radius:6px;background:var(--cards-bg);cursor:pointer}' +
+            '.nm-ta-pill--on{border-color:var(--cards-border-color);outline:2px solid color-mix(in srgb,currentcolor 35%,transparent)}' +
+            '.nm-ta-export-pre{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--cards-bg);border:1px solid var(--cards-border-color);border-radius:6px;padding:10px;overflow:auto;max-height:260px;white-space:pre-wrap;word-break:break-word}' +
+            'input[type=range].nm-ta-range{width:100%}'
         );
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Open', icon: 'list-tree', onSelected: () => this._openPanel('home') });
-        this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Bulk move notes', icon: 'list-tree', onSelected: () => this._openPanel('bulk-move') });
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Assign subpages', icon: 'list-tree', onSelected: () => this._openPanel('assign-parent') });
+        this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Bulk move notes', icon: 'list-tree', onSelected: () => this._openPanel('bulk-move') });
+        this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Tag analyzer', icon: 'list-tree', onSelected: () => this._openPanel('tag-analyzer') });
+        this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Tag merge', icon: 'list-tree', onSelected: () => this._openPanel('tag-merge') });
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Tag rename (quick)', icon: 'list-tree', onSelected: () => this._openPanel('tag-rename') });
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Tag review (advanced)', icon: 'list-tree', onSelected: () => this._openPanel('tag-review') });
         this.plugin.ui.addSidebarItem({ label: 'Notes Manager', icon: 'list-tree', tooltip: 'Open Notes Manager', onClick: () => this._openPanel() });
@@ -193,7 +237,7 @@ class NotesManagerPanel {
             (async () => {
                 if (this._mode === 'bulk-move') await this._ensureBulkMoveLoaded();
                 if (this._mode === 'assign-parent') await this._ensureAssignLoaded();
-                if (this._mode === 'tag-rename' || this._mode === 'tag-review') await this._ensureTagLoaded(true);
+                if (this._mode === 'tag-rename' || this._mode === 'tag-review' || this._mode === 'tag-analyzer' || this._mode === 'tag-merge') await this._ensureTagLoaded(true);
                 this._render(panel);
             })();
         });
@@ -217,6 +261,8 @@ class NotesManagerPanel {
             'assign-parent': 'Assign subpages',
             'tag-rename': 'Tag rename (quick)',
             'tag-review': 'Tag review (advanced)',
+            'tag-analyzer': 'Tag analyzer',
+            'tag-merge': 'Tag merge',
         }[this._mode] || 'Home';
     }
 
@@ -228,7 +274,7 @@ class NotesManagerPanel {
 
     _menuHTML() {
         const breadcrumb = this._breadcrumbPath();
-        return `<div class="nm-menu-wrap"><div class="nm-menu-trigger"><button class="nm-hamburger"><i class="ti ti-menu-2"></i></button><span class="nm-header-crumb">${breadcrumb}</span></div><div class="nm-dropdown" hidden><button class="nm-dropdown-item" data-action="set-mode" data-mode="home">Home</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="bulk-move">Bulk move notes</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button></div></div>`;
+        return `<div class="nm-menu-wrap"><div class="nm-menu-trigger"><button class="nm-hamburger"><i class="ti ti-menu-2"></i></button><span class="nm-header-crumb">${breadcrumb}</span></div><div class="nm-dropdown" hidden><button class="nm-dropdown-item" data-action="set-mode" data-mode="home">Home</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="bulk-move">Bulk move notes</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-analyzer">Tag analyzer</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-merge">Tag merge</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button></div></div>`;
     }
 
     _statusHTML() {
@@ -331,7 +377,7 @@ ${pickerHtml}
     }
 
     _buildHomeHTML() {
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Notes Manager</p><p class="nm-text">Bulk Move, Assign Subpages, and Tag Rename share preview/apply and row-level review logging.</p><div class="nm-actions"><button class="nm-btn" data-action="set-mode" data-mode="bulk-move">Bulk move notes</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button></div></div>${this._sharedTailHTML()}</div>`;
+        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Notes Manager</p><p class="nm-text">Bulk move, assign subpages, tag rename, review, analyzer, and merge-from-plan share the same panel and review log.</p><div class="nm-actions"><button class="nm-btn" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="bulk-move">Bulk move notes</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-analyzer">Tag analyzer</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-merge">Tag merge</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button></div></div>${this._sharedTailHTML()}</div>`;
     }
 
     _buildBulkMoveHTML() {
@@ -365,7 +411,7 @@ ${pickerHtml}
         const st = this._tagState;
         const suggestions = this._tagSuggestions().slice(0, 20);
         const hasTrace = !!(st.traceOutput && st.traceOutput.trim());
-        const trace = this._escape(st.traceOutput || 'Run "Trace current tag source" to inspect where the current tag is found.');
+        const trace = this._escape(st.traceOutput || 'Run "Trace tag source" to inspect where the current tag is found.');
         const advancedState = this._tagAdvancedState(st);
         const gridRows = this._reviewGridRowsForDisplay();
         const defaultHeaderLabel = (this.cleanTag(st.reviewGridDefaultTarget || st.newTag) || 'Default').toUpperCase();
@@ -441,6 +487,601 @@ ${this._sharedTailHTML()}
 </div>`;
     }
 
+    _tagAnalyzerClearResults() {
+        const st = this._tagState;
+        st.tagAnalyzerPhase = 'setup';
+        st.tagAnalyzerClusters = [];
+        st.tagAnalyzerOrphans = [];
+        st.tagAnalyzerOpenClusterId = null;
+        st.tagAnalyzerReplacements = {};
+        st.tagAnalyzerExportVisible = false;
+        st.tagAnalyzerLastLowCount = 0;
+        st.tagAnalyzerClusterOrder = 'processed';
+        st.tagAnalyzerPickFilter = '';
+        st.tagAnalyzerPickSelected = [];
+        st.tagAnalyzerNextClusterId = 100000;
+    }
+
+    _tagAnalyzerLevenshtein(a, b) {
+        const m = a.length;
+        const n = b.length;
+        const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+        for (let i = 0; i <= m; i++) dp[i][0] = i;
+        for (let j = 0; j <= n; j++) dp[0][j] = j;
+        for (let i = 1; i <= m; i++) {
+            for (let j = 1; j <= n; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+            }
+        }
+        return dp[m][n];
+    }
+
+    _tagAnalyzerTokenize(tag) {
+        return String(tag ?? '')
+            .toLowerCase()
+            .replace(/[^\p{L}\p{N}]+/gu, ' ')
+            .split(/\s+/)
+            .filter(Boolean);
+    }
+
+    _tagAnalyzerJaccardTokens(a, b) {
+        const sa = new Set(this._tagAnalyzerTokenize(a));
+        const sb = new Set(this._tagAnalyzerTokenize(b));
+        const inter = [...sa].filter(x => sb.has(x)).length;
+        const union = new Set([...sa, ...sb]).size;
+        return union === 0 ? 0 : inter / union;
+    }
+
+    _tagAnalyzerSimilarity(a, b) {
+        const aStr = String(a ?? '');
+        const bStr = String(b ?? '');
+        const maxLen = Math.max(aStr.length, bStr.length);
+        const levSim = maxLen === 0 ? 1 : 1 - this._tagAnalyzerLevenshtein(aStr.toLowerCase(), bStr.toLowerCase()) / maxLen;
+        const jacSim = this._tagAnalyzerJaccardTokens(aStr, bStr);
+        const al = aStr.toLowerCase();
+        const bl = bStr.toLowerCase();
+        const bonus = al.includes(bl) || bl.includes(al) ? 0.3 : 0;
+        return Math.min(1, Math.max(levSim, jacSim) + bonus);
+    }
+
+    _tagAnalyzerBuildClusters(lowTags, allTags, simThreshold) {
+        const result = [];
+        const assigned = new Set();
+        for (const lt of lowTags) {
+            if (assigned.has(lt.name)) continue;
+            const members = [lt];
+            for (const c of allTags) {
+                if (c.name === lt.name || assigned.has(c.name)) continue;
+                if (this._tagAnalyzerSimilarity(lt.name, c.name) >= simThreshold) members.push(c);
+            }
+            if (members.length > 1) {
+                members.forEach(m => assigned.add(m.name));
+                const best = members.reduce((a, b) => ((b.count || 0) > (a.count || 0) ? b : a));
+                result.push({
+                    id: result.length,
+                    members,
+                    suggestedReplacement: best.name,
+                    totalCount: members.reduce((s, m) => s + (m.count || 0), 0),
+                    omitFromExport: false,
+                    manual: false,
+                });
+            }
+        }
+        return result;
+    }
+
+    _runTagAnalyzerClustering() {
+        const st = this._tagState;
+        const idx = Array.isArray(st.tagIndex) ? st.tagIndex : [];
+        const allTags = idx.map(e => ({ name: String(e.tag ?? '').trim(), count: Number(e.count) || 0 })).filter(t => t.name);
+        if (!allTags.length) return;
+        const maxCount = Math.max(1, ...allTags.map(t => t.count));
+        const thRaw = Number(st.tagAnalyzerThreshold);
+        const threshold = Math.max(1, Math.min(Number.isFinite(thRaw) ? thRaw : 5, maxCount));
+        st.tagAnalyzerThreshold = threshold;
+        const simRaw = Number(st.tagAnalyzerSimPercent);
+        const simPct = Math.max(15, Math.min(Number.isFinite(simRaw) ? simRaw : 35, 70));
+        st.tagAnalyzerSimPercent = simPct;
+        const lowTags = allTags.filter(t => t.count <= threshold);
+        const simThreshold = simPct / 100;
+        const autoClusters = this._tagAnalyzerBuildClusters(lowTags, allTags, simThreshold);
+        const clustered = new Set(autoClusters.flatMap(c => c.members.map(m => m.name)));
+        const orphans = lowTags.filter(t => !clustered.has(t.name));
+        const prevManual = (st.tagAnalyzerClusters || []).filter(c => c.manual);
+        st.tagAnalyzerClusters = [...autoClusters, ...prevManual];
+        st.tagAnalyzerOrphans = orphans;
+        st.tagAnalyzerReplacements = {};
+        st.tagAnalyzerOpenClusterId = null;
+        st.tagAnalyzerExportVisible = false;
+        st.tagAnalyzerLastLowCount = lowTags.length;
+        st.tagAnalyzerPhase = 'results';
+        this._logRow('tag-analyzer', 'applied', { recordGuid: '', recordName: '' }, `Low-use ≤${threshold}: ${lowTags.length}; clusters: ${st.tagAnalyzerClusters.length}; orphans: ${orphans.length}; similarity ${simPct}%`);
+    }
+
+    _tagAnalyzerExportPlanJson() {
+        const st = this._tagState;
+        const clusters = this._tagAnalyzerSortedClusters(st).filter(c => !c.omitFromExport);
+        return clusters.map(c => {
+            const raw = st.tagAnalyzerReplacements[c.id];
+            const replacement = raw !== undefined && String(raw).trim() !== '' ? String(raw).trim() : c.suggestedReplacement;
+            return {
+                replacement,
+                merging: c.members.map(m => m.name).filter(n => n !== replacement),
+                combinedCount: c.totalCount,
+            };
+        });
+    }
+
+    /** Display text for export panel only (metadata lines + JSON). Save/Copy use `_tagAnalyzerExportPlanJson()` alone. */
+    _tagAnalyzerExportPlanDisplayText() {
+        const plan = this._tagAnalyzerExportPlanJson();
+        const body = JSON.stringify(plan, null, 2);
+        const clusterCount = plan.length;
+        const jsonLines = body.split(/\r?\n/).length;
+        return `Clusters in export: ${clusterCount}\nJSON lines: ${jsonLines}\n\n${body}`;
+    }
+
+    _tagAnalyzerSortedClusters(st) {
+        const raw = [...(st.tagAnalyzerClusters || [])];
+        const order = st.tagAnalyzerClusterOrder || 'processed';
+        if (order === 'size-desc') {
+            return raw.sort((a, b) => (b.members.length - a.members.length) || (b.totalCount - a.totalCount) || (a.id - b.id));
+        }
+        if (order === 'combined-desc') {
+            return raw.sort((a, b) => (b.totalCount - a.totalCount) || (b.members.length - a.members.length) || (a.id - b.id));
+        }
+        return raw;
+    }
+
+    _tagAnalyzerManualPickHTML() {
+        const st = this._tagState;
+        const open = st.tagAnalyzerManualOpen !== false;
+        const idx = Array.isArray(st.tagIndex) ? st.tagIndex : [];
+        const q = (st.tagAnalyzerPickFilter || '').toLowerCase().trim();
+        const picked = new Set(st.tagAnalyzerPickSelected || []);
+        const byName = new Map(idx.map(e => [String(e.tag ?? '').trim(), e]));
+        const filtered = idx
+            .filter(e => {
+                const t = String(e.tag ?? '').trim();
+                if (!t) return false;
+                return !q || t.toLowerCase().includes(q);
+            })
+            .slice(0, 80);
+        const inSlice = new Set(filtered.map(e => String(e.tag ?? '').trim()));
+        const hiddenPicked = [...picked].filter(t => !inSlice.has(t));
+        const rowFor = (t, count) => {
+            const on = picked.has(t);
+            return `<label class="nm-inline" style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--cards-border-color);cursor:pointer;width:100%;box-sizing:border-box"><input type="checkbox" class="nm-ta-manual-cb" data-tag="${encodeURIComponent(t)}"${on ? ' checked' : ''}><span><span class="nm-muted">#</span>${this._escape(t)}</span><span class="nm-muted" style="margin-left:auto">${count}</span></label>`;
+        };
+        const extraRows = hiddenPicked
+            .map(t => {
+                const e = byName.get(t);
+                const count = e ? Number(e.count) || 0 : 0;
+                return rowFor(t, count);
+            })
+            .join('');
+        const rows =
+            (hiddenPicked.length ? `<div class="nm-muted" style="font-size:11px;padding:4px 0">Selected (outside current filter)</div>${extraRows}` : '') +
+            filtered
+                .map(e => {
+                    const t = String(e.tag ?? '').trim();
+                    return rowFor(t, Number(e.count) || 0);
+                })
+                .join('');
+        const sel = [...picked].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+        const selLine = sel.length ? `<p class="nm-muted" style="margin:6px 0;font-size:12px;">Selected (${sel.length}): ${sel.map(t => `#${this._escape(t)}`).join(', ')}</p>` : '<p class="nm-muted" style="margin:6px 0;font-size:12px;">Select at least two tags.</p>';
+        const addDisabled = picked.size < 2 ? ' disabled' : '';
+        const body = open
+            ? `<p class="nm-muted" style="margin-bottom:8px;">Search the index, tick two or more tags, then create a cluster. Same export and target controls as auto clusters.</p><div class="nm-field"><label class="nm-label">Filter tags</label><input class="nm-input nm-ta-manual-filter" type="text" value="${this._escape(st.tagAnalyzerPickFilter)}" placeholder="Substring…"></div>${selLine}<div class="nm-table-wrap" style="max-height:200px;margin-top:6px">${rows || '<p class="nm-muted" style="padding:8px">No tags match.</p>'}</div><div class="nm-inline" style="margin-top:8px;gap:8px;"><button type="button" class="nm-btn"${addDisabled} data-action="ta-manual-add">Create cluster from selection</button><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-manual-pick-clear"${picked.size ? '' : ' disabled'}>Clear selection</button></div>`
+            : '';
+        return `<div class="nm-card" style="margin-top:12px;"><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-toggle-manual" style="margin-bottom:${open ? '8px' : '0'};display:flex;align-items:center;gap:8px;"><span>${open ? '▾' : '▸'}</span><span>Add manual cluster</span></button>${body}</div>`;
+    }
+
+    _tagAnalyzerClusterBlocksHTML() {
+        const st = this._tagState;
+        const clusters = this._tagAnalyzerSortedClusters(st);
+        if (!clusters.length) {
+            return '<p class="nm-muted">No clusters found. Try lowering similarity (looser matches) or raising the usage threshold.</p>';
+        }
+        return clusters.map(c => {
+            const repl = st.tagAnalyzerReplacements[c.id] !== undefined ? String(st.tagAnalyzerReplacements[c.id]) : c.suggestedReplacement;
+            const replNorm = String(repl).trim();
+            const open = st.tagAnalyzerOpenClusterId === c.id;
+            const pills = c.members.map(m => {
+                const on = m.name === replNorm;
+                return `<button type="button" class="nm-ta-pill${on ? ' nm-ta-pill--on' : ''}" data-action="ta-pick-replacement" data-id="${c.id}" data-tag="${encodeURIComponent(m.name)}"><span class="nm-muted">#</span>${this._escape(m.name)} <span class="nm-muted">(${m.count})</span></button>`;
+            }).join('');
+            const manualBadge = c.manual ? '<span class="nm-muted" style="font-size:11px;margin-right:6px">Manual</span>' : '';
+            const omitChecked = c.omitFromExport ? ' checked' : '';
+            return `<div class="nm-ta-cluster${open ? ' nm-ta-cluster--open' : ''}"><div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:6px 10px;border-bottom:1px solid var(--cards-border-color);flex-wrap:wrap">${manualBadge}<label class="nm-inline" style="margin:0"><input type="checkbox" class="nm-ta-omit-cb" data-cluster-id="${c.id}"${omitChecked}><span class="nm-muted">Omit from export</span></label></div><div class="nm-ta-cluster-head" data-action="ta-toggle-cluster" data-id="${c.id}"><span class="nm-muted" style="flex-shrink:0">${open ? '▲' : '▼'}</span><span style="flex:1;min-width:0">${this._escape(c.members.map(m => m.name).join(', '))}</span><span class="nm-muted" style="flex-shrink:0">${c.members.length} tags → 1</span></div><div class="nm-ta-cluster-detail${open ? ' nm-ta-cluster-detail--open' : ''}"><p class="nm-muted" style="margin:8px 0 4px;">Members — click a tag or edit the target name.</p><div class="nm-ta-pills">${pills}</div><div class="nm-field" style="margin-top:8px;"><label class="nm-label">Target tag</label><input class="nm-input nm-ta-target-input" type="text" data-cluster-id="${c.id}" value="${this._escape(repl)}"></div><p class="nm-muted" style="margin-top:8px;">Combined record count: <strong>${c.totalCount}</strong></p></div></div>`;
+        }).join('');
+    }
+
+    _resetTagMergeState() {
+        const m = this._tagMergeState;
+        m.rows = [];
+        m.parseNotes = [];
+        m.fileName = '';
+        m.output = '';
+        m.running = false;
+        m.rowIdSeq = 0;
+        m.totalsOpen = false;
+    }
+
+    _tagMergeNextRowId() {
+        this._tagMergeState.rowIdSeq += 1;
+        return `tm-r-${this._tagMergeState.rowIdSeq}`;
+    }
+
+    _tagIndexLookupCount(tagName, idx) {
+        const st = this._tagState;
+        const target = this.cleanTag(tagName);
+        if (!target) return 0;
+        const arr = Array.isArray(idx) ? idx : st.tagIndex || [];
+        for (const e of arr) {
+            const t = String(e.tag ?? '').trim();
+            if (!t) continue;
+            if (this.matchKey(t, st.caseSensitive) === this.matchKey(target, st.caseSensitive)) return Number(e.count) || 0;
+        }
+        return 0;
+    }
+
+    _tagMergeRefreshRowIndexCounts() {
+        const idx = this._tagState.tagIndex || [];
+        for (const r of this._tagMergeState.rows) {
+            r.fromIndexCount = this._tagIndexLookupCount(r.from, idx);
+        }
+    }
+
+    _tagMergeNormalizePlan(plan) {
+        const notes = [];
+        const rows = [];
+        if (!Array.isArray(plan)) {
+            notes.push('File must be a JSON array of cluster objects.');
+            return { rows, parseNotes: notes };
+        }
+        const st = this._tagState;
+        const idx = Array.isArray(st.tagIndex) ? st.tagIndex : [];
+        const seenFrom = new Set();
+        let clusterOrdinal = 0;
+        plan.forEach((raw, fileIdx) => {
+            const n = fileIdx + 1;
+            if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+                notes.push(`Entry ${n}: skipped (not an object).`);
+                return;
+            }
+            const keys = Object.keys(raw);
+            const allowed = new Set(['replacement', 'merging', 'combinedCount']);
+            if (keys.length !== 3 || !keys.every(k => allowed.has(k))) {
+                notes.push(`Entry ${n}: dropped (each object must contain only replacement, merging, and combinedCount).`);
+                return;
+            }
+            const repRaw = raw.replacement;
+            const merRaw = raw.merging;
+            const combRaw = raw.combinedCount;
+            if (typeof repRaw !== 'string' || !String(repRaw).trim()) {
+                notes.push(`Entry ${n}: dropped (replacement must be a non-empty string).`);
+                return;
+            }
+            if (!Array.isArray(merRaw)) {
+                notes.push(`Entry ${n}: dropped (merging must be an array).`);
+                return;
+            }
+            if (typeof combRaw !== 'number' || !Number.isFinite(combRaw) || combRaw < 0) {
+                notes.push(`Entry ${n}: dropped (combinedCount must be a non-negative number).`);
+                return;
+            }
+            const to = this.cleanTag(repRaw);
+            if (!to) {
+                notes.push(`Entry ${n}: dropped (replacement normalizes to empty).`);
+                return;
+            }
+            const clusterRows = [];
+            for (let mi = 0; mi < merRaw.length; mi++) {
+                const m = merRaw[mi];
+                if (typeof m !== 'string' || !String(m).trim()) {
+                    notes.push(`Entry ${n} merging[${mi}]: skipped (non-string or empty).`);
+                    continue;
+                }
+                const from = this.cleanTag(m);
+                if (!from) continue;
+                if (this.matchKey(from, st.caseSensitive) === this.matchKey(to, st.caseSensitive)) {
+                    notes.push(`Entry ${n}: row dropped (#${from} → #${to}: same tag after normalization).`);
+                    continue;
+                }
+                const fk = this.matchKey(from, st.caseSensitive);
+                if (seenFrom.has(fk)) {
+                    notes.push(`Entry ${n}: duplicate #${from} — row skipped (first cluster wins).`);
+                    continue;
+                }
+                seenFrom.add(fk);
+                clusterRows.push({ from, to });
+            }
+            if (!clusterRows.length) {
+                notes.push(`Entry ${n}: dropped (no executable rows after validation).`);
+                return;
+            }
+            clusterOrdinal += 1;
+            const label = String(clusterOrdinal).padStart(2, '0');
+            const combined = Math.trunc(combRaw);
+            for (const cr of clusterRows) {
+                rows.push({
+                    id: this._tagMergeNextRowId(),
+                    from: cr.from,
+                    to: cr.to,
+                    clusterLabel: label,
+                    clusterCombinedCount: combined,
+                    skip: false,
+                    fromIndexCount: this._tagIndexLookupCount(cr.from, idx),
+                    preview: null,
+                });
+            }
+        });
+        return { rows, parseNotes: notes };
+    }
+
+    _tagMergeClusterSummaryHtml() {
+        const by = new Map();
+        for (const r of this._tagMergeState.rows) {
+            if (!by.has(r.clusterLabel)) {
+                by.set(r.clusterLabel, { combined: r.clusterCombinedCount, indexSumAll: 0, indexSumActive: 0, userSkipped: 0 });
+            }
+            const g = by.get(r.clusterLabel);
+            g.indexSumAll += Number(r.fromIndexCount) || 0;
+            if (r.skip) g.userSkipped += 1;
+            else g.indexSumActive += Number(r.fromIndexCount) || 0;
+        }
+        if (!by.size) return '';
+        const lines = [...by.entries()]
+            .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+            .map(([label, g]) => {
+                const drift = Math.abs(g.indexSumAll - g.combined) > 1;
+                const skipPart = g.userSkipped
+                    ? ` <span class="nm-muted">Excluded row notice: ${g.userSkipped} row(s) skipped in UI — effective index-use sum ${g.indexSumActive} vs export combinedCount ${g.combined}.</span>`
+                    : '';
+                const driftPart = drift ? ' <span class="nm-muted">Index-use sum for grid rows differs from export combinedCount (plan may be stale vs current index).</span>' : '';
+                return `<li><strong>Cluster ${label}</strong> — export combinedCount: ${g.combined}; index-use sum at load (all grid rows): ${g.indexSumAll}.${skipPart}${driftPart}</li>`;
+            });
+        const open = !!this._tagMergeState.totalsOpen;
+        const chev = open ? '▼' : '▶';
+        const body = open ? `<ul class="nm-muted" style="margin:0;padding-left:18px;font-size:12px;line-height:1.45">${lines.join('')}</ul>` : '';
+        return `<div class="nm-card" style="margin-top:12px;"><button type="button" class="nm-btn nm-btn--secondary" data-action="tm-toggle-totals" style="margin-bottom:${open ? '8px' : '0'};display:flex;align-items:center;gap:8px;"><span>${chev}</span><span>Per-cluster totals</span></button>${body}</div>`;
+    }
+
+    async _renameTagPairPass(oldTag, newTag, dryRun) {
+        const st = this._tagState;
+        const opts = this._tagScanOpts();
+        let recordsScanned = 0;
+        let recordsChanged = 0;
+        let recordsUnchanged = 0;
+        let lineItemsChanged = 0;
+        let segmentsChanged = 0;
+        let propertiesChanged = 0;
+        let propertyValuesChanged = 0;
+        let unchangedCaseMismatch = 0;
+        let unchangedNoExactMatch = 0;
+        const errors = [];
+        await this.forEachScannableRecord(opts, async (record) => {
+            recordsScanned += 1;
+            try {
+                const changed = await this._renameTagInRecord({
+                    record,
+                    oldTag,
+                    newTag,
+                    caseSensitive: st.caseSensitive,
+                    dryRun,
+                    collectRows: null,
+                });
+                if (changed.recordChanged) recordsChanged += 1;
+                else {
+                    recordsUnchanged += 1;
+                    if (changed.unchangedReason === 'case-mismatch') unchangedCaseMismatch += 1;
+                    else unchangedNoExactMatch += 1;
+                }
+                lineItemsChanged += changed.lineItemsChanged;
+                segmentsChanged += changed.segmentsChanged;
+                propertiesChanged += changed.propertiesChanged;
+                propertyValuesChanged += changed.propertyValuesChanged;
+            } catch (e) {
+                errors.push({
+                    recordGuid: record?.guid || '',
+                    recordName: record.getName?.() || '(unknown)',
+                    error: String(e?.message || e),
+                });
+            }
+        });
+        return {
+            recordsScanned,
+            recordsChanged,
+            recordsUnchanged,
+            lineItemsChanged,
+            segmentsChanged,
+            propertiesChanged,
+            propertyValuesChanged,
+            unchangedCaseMismatch,
+            unchangedNoExactMatch,
+            errors,
+        };
+    }
+
+    async _previewTagMerge() {
+        const m = this._tagMergeState;
+        if (m.running || !m.rows.length) return;
+        await this._ensureTagLoaded(true);
+        this._tagMergeRefreshRowIndexCounts();
+        m.running = true;
+        if (this._panel) this._render(this._panel);
+        const lines = [
+            'Tag merge — Preview (no writes)',
+            `Run timestamp: ${new Date().toLocaleString()}`,
+            '',
+        ];
+        for (const row of m.rows) {
+            if (row.skip) {
+                lines.push(`SKIP (UI) #${row.from} → #${row.to} [cluster ${row.clusterLabel}]`);
+                row.preview = null;
+                continue;
+            }
+            const stats = await this._renameTagPairPass(row.from, row.to, true);
+            row.preview = stats;
+            lines.push(
+                `#${row.from} → #${row.to} [cluster ${row.clusterLabel}] — records scanned: ${stats.recordsScanned}; changed: ${stats.recordsChanged}; unchanged: ${stats.recordsUnchanged}; line items: ${stats.lineItemsChanged}; occurrences: ${stats.segmentsChanged}; properties: ${stats.propertiesChanged}; property values: ${stats.propertyValuesChanged}; unchanged (case mismatch): ${stats.unchangedCaseMismatch}; unchanged (no exact tag): ${stats.unchangedNoExactMatch}; errors: ${stats.errors.length}`
+            );
+            if (stats.errors.length) {
+                for (const er of stats.errors.slice(0, 5)) lines.push(`  - ${er.recordName} → ${er.error}`);
+                if (stats.errors.length > 5) lines.push(`  ... +${stats.errors.length - 5} more`);
+            }
+        }
+        lines.push('', 'Checksum (export combinedCount vs index-use sum at load for grid rows in that cluster): see Per-cluster totals card.');
+        m.running = false;
+        const out = lines.join('\n');
+        m.output = out;
+        this._logRow('tag-merge', 'preview', { recordGuid: '', recordName: '' }, out);
+        this._setStatus('Preview complete. Detailed results are in the Tag merge output panel and review log.', { title: 'Tag merge', autoDestroyTime: 3500 });
+        if (this._panel) this._render(this._panel);
+    }
+
+    async _applyTagMerge() {
+        const m = this._tagMergeState;
+        if (m.running || !m.rows.length) return;
+        await this._ensureTagLoaded(true);
+        this._tagMergeRefreshRowIndexCounts();
+        m.running = true;
+        if (this._panel) this._render(this._panel);
+        const lines = [
+            'Tag merge — Apply (writes)',
+            `Run timestamp: ${new Date().toLocaleString()}`,
+            '',
+        ];
+        const appliedFrom = [];
+        for (const row of m.rows) {
+            if (row.skip) {
+                lines.push(`SKIP (UI) #${row.from} → #${row.to} [cluster ${row.clusterLabel}]`);
+                continue;
+            }
+            const stats = await this._renameTagPairPass(row.from, row.to, false);
+            row.preview = stats;
+            appliedFrom.push(row.from);
+            lines.push(
+                `#${row.from} → #${row.to} [cluster ${row.clusterLabel}] — records changed: ${stats.recordsChanged}; unchanged: ${stats.recordsUnchanged}; occurrences: ${stats.segmentsChanged}; errors: ${stats.errors.length}`
+            );
+            if (stats.errors.length) {
+                for (const er of stats.errors.slice(0, 8)) lines.push(`  - ${er.recordName} → ${er.error}`);
+            }
+        }
+        await this._refreshTagIndex();
+        lines.push('', 'Post-apply: index refreshed. Residual source tags:');
+        for (const from of appliedFrom) {
+            const cnt = this._tagIndexLookupCount(from, this._tagState.tagIndex);
+            if (cnt > 0) lines.push(`  WARN #${from} still in index with count ${cnt}`);
+            else lines.push(`  OK #${from} — index count 0`);
+        }
+        const by = new Map();
+        for (const r of m.rows) {
+            if (!by.has(r.clusterLabel)) {
+                by.set(r.clusterLabel, { combined: r.clusterCombinedCount, appliedRows: 0, sumChanged: 0, sumIndexActive: 0, skipped: 0 });
+            }
+            const g = by.get(r.clusterLabel);
+            if (r.skip) g.skipped += 1;
+            else {
+                g.appliedRows += 1;
+                g.sumIndexActive += Number(r.fromIndexCount) || 0;
+                g.sumChanged += Number(r.preview?.recordsChanged) || 0;
+            }
+        }
+        lines.push('', 'Per-cluster apply summary (records changed sums per row; may double-count shared notes across rows):');
+        for (const [label, g] of [...by.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))) {
+            const note = g.skipped ? `; ${g.skipped} UI-skipped row(s); effective index-use sum at load ${g.sumIndexActive}` : '';
+            lines.push(`  Cluster ${label}: export combinedCount ${g.combined}; sum of records-changed (this run) ${g.sumChanged}${note}`);
+        }
+        m.running = false;
+        const out = lines.join('\n');
+        m.output = out;
+        this._logRow('tag-merge', 'summary', { recordGuid: '', recordName: '' }, out);
+        this._setStatus('Apply complete. Detailed results are in the Tag merge output panel and review log.', { title: 'Tag merge', autoDestroyTime: 4000 });
+        if (this._panel) this._render(this._panel);
+    }
+
+    _buildTagMergeHTML() {
+        const st = this._tagState;
+        const m = this._tagMergeState;
+        const adv = this._tagAdvancedState(st);
+        const runDisabled = m.running || !m.rows.length ? ' disabled' : '';
+        const parseBlock = m.parseNotes.length
+            ? `<div class="nm-card" style="margin-top:12px;"><p class="nm-title" style="font-size:13px;">Load notes</p><ul class="nm-muted" style="margin:0;padding-left:18px;font-size:12px;line-height:1.45">${m.parseNotes.map(t => `<li>${this._escape(t)}</li>`).join('')}</ul></div>`
+            : '';
+        const tableRows = m.rows.length
+            ? m.rows
+                  .map(r => {
+                      const pr = r.preview;
+                      const prevCol = r.skip
+                          ? '—'
+                          : pr
+                            ? `${pr.recordsChanged} Δrec / ${pr.segmentsChanged} occ`
+                            : '—';
+                      return `<tr><td><span class="nm-muted">#</span>${this._escape(r.from)}</td><td><span class="nm-muted">#</span>${this._escape(r.to)}</td><td>cluster ${this._escape(r.clusterLabel)}</td><td style="text-align:center"><label class="nm-inline" style="margin:0;justify-content:center"><input type="checkbox" class="nm-tm-skip-cb" data-row-id="${this._escape(r.id)}"${r.skip ? ' checked' : ''}><span class="nm-muted">Skip</span></label></td><td class="nm-muted" style="font-size:12px">${this._escape(prevCol)}</td></tr>`;
+                  })
+                  .join('')
+            : '';
+        const totalRows = m.rows.length;
+        const skippedRows = m.rows.filter(r => r.skip).length;
+        const activeRows = totalRows - skippedRows;
+        const gridMeta = totalRows ? `Rows: ${activeRows}/${totalRows} | Skip: ${skippedRows}` : 'Rows: 0/0 | Skip: 0';
+        const allSkipped = m.rows.length > 0 && m.rows.every(r => r.skip);
+        const table = m.rows.length
+            ? `<div class="nm-table-wrap nm-tm-table-wrap" style="max-height:360px;margin-top:10px"><table class="nm-table"><thead><tr><th>From tag</th><th>To tag</th><th>Cluster</th><th style="width:120px;text-align:center"><label class="nm-inline" style="justify-content:center;align-items:center;margin:0"><input type="checkbox" data-action="tm-skip-all"${allSkipped ? ' checked' : ''}> <span class="nm-muted">Skip</span></label></th><th>Preview</th></tr></thead><tbody>${tableRows}</tbody></table></div>`
+            : '<p class="nm-muted" style="margin-top:10px">No plan loaded yet.</p>';
+        const outBlock = m.output.trim()
+            ? `<div class="nm-card" style="margin-top:12px;"><p class="nm-title" style="font-size:13px;">Output</p><pre class="nm-ta-export-pre" style="max-height:220px">${this._escape(m.output)}</pre></div>`
+            : '';
+        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Tag merge</p><p class="nm-text">Load a <strong>tag-consolidation-plan</strong> JSON array (objects with <code>replacement</code>, <code>merging</code>, <code>combinedCount</code> only). Each <code>merging</code> entry becomes one row. Use <strong>Skip</strong> to exclude a row from preview/apply. Preview and apply use the same scan logic as Tag rename (quick).</p><p class="nm-muted" style="margin-top:6px;">Index scope: ${this._escape(adv)}</p><div class="nm-inline" style="margin:12px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><button type="button" class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div><div class="nm-adv"><div class="nm-adv-head" data-action="tr-toggle-advanced"><span class="nm-muted">${st.advancedOpen ? '▾' : '▸'} Matching options</span><span class="nm-muted">${this._escape(adv)}</span></div>${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-case"${st.caseSensitive ? ' checked' : ''}> <span class="nm-muted">Case-sensitive matching</span></label></div><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-exclude-choice"${st.excludeChoiceValues ? ' checked' : ''}> <span class="nm-muted">Exclude choice/enum from tag list</span></label></div>${this._buildExcludedCollectionsFieldHTML()}</div></div>` : ''}</div><div class="nm-inline" style="gap:8px;flex-wrap:wrap;margin-top:8px"><input type="file" class="nm-tm-file" accept=".json,application/json" hidden><button type="button" class="nm-btn" data-action="tm-choose-file">Load consolidation plan…</button>${m.rows.length ? `<button type="button" class="nm-btn nm-btn--secondary" data-action="tm-clear-plan">Clear plan</button><span class="nm-muted" style="font-size:12px">${this._escape(m.fileName || 'loaded')}</span>` : ''}</div>${parseBlock}${this._tagMergeClusterSummaryHtml()}<div class="nm-status">${this._escape(gridMeta)}</div>${table}<div class="nm-actions" style="margin-top:12px;"><button type="button" class="nm-btn nm-btn--secondary"${runDisabled} data-action="tm-preview">Preview</button><button type="button" class="nm-btn"${runDisabled} data-action="tm-apply">Apply</button></div>${outBlock}</div><div class="nm-actions"><button type="button" class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${this._sharedTailHTML()}</div>`;
+    }
+
+    _buildTagAnalyzerHTML() {
+        const st = this._tagState;
+        const adv = this._tagAdvancedState(st);
+        const idx = Array.isArray(st.tagIndex) ? st.tagIndex : [];
+        const allTags = idx.map(e => ({ name: String(e.tag ?? '').trim(), count: Number(e.count) || 0 })).filter(t => t.name);
+        const maxCount = Math.max(20, ...allTags.map(t => t.count), 1);
+        const th = Math.max(1, Math.min(Number(st.tagAnalyzerThreshold) || 5, maxCount));
+        const simPct = Math.max(15, Math.min(Number(st.tagAnalyzerSimPercent) || 35, 70));
+        const lowSetup = allTags.filter(t => t.count <= th);
+        const highSetup = allTags.filter(t => t.count > th);
+        const total = allTags.length;
+        const head = `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Tag analyzer</p><p class="nm-text">Find merge candidates from your tag index: low-use tags seed clusters; similar tags (spelling, tokens, or substring overlap) group together. Adjust scope with <strong>Matching options</strong> on Tag rename or Tag review, then <strong>Refresh index</strong>.</p><p class="nm-muted" style="margin-top:6px;">Index scope: ${this._escape(adv)}</p><div class="nm-inline" style="margin:12px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><button type="button" class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div>`;
+
+        if (st.tagAnalyzerPhase !== 'results') {
+            const statSetup = total
+                ? `<div class="nm-ta-stat-grid"><div class="nm-ta-stat-card"><div class="nm-ta-stat-val">${total}</div><div class="nm-ta-stat-lbl">Total tags</div></div><div class="nm-ta-stat-card"><div class="nm-ta-stat-val">${lowSetup.length}</div><div class="nm-ta-stat-lbl">At or below threshold</div></div><div class="nm-ta-stat-card"><div class="nm-ta-stat-val">${highSetup.length}</div><div class="nm-ta-stat-lbl">Above threshold</div></div></div>`
+                : '';
+            const controls = `<div class="nm-field-grid" style="margin-top:12px;"><div class="nm-field"><label class="nm-label" for="nm-ta-th">Usage threshold ≤ ${th}</label><input id="nm-ta-th" class="nm-ta-range nm-ta-threshold-range" type="range" min="1" max="${maxCount}" value="${th}"><p class="nm-muted" style="margin-top:4px;font-size:12px;">Tags with this many uses or fewer are candidates for clustering.</p></div><div class="nm-field"><label class="nm-label" for="nm-ta-sim">Similarity sensitivity: ${simPct}%</label><input id="nm-ta-sim" class="nm-ta-range nm-ta-sim-range" type="range" min="15" max="70" value="${simPct}"><p class="nm-muted" style="margin-top:4px;font-size:12px;">Lower = looser matches. Higher = stricter (same idea as the standalone Tag Triage tool).</p></div></div>`;
+            const analyzeDisabled = !total ? ' disabled' : '';
+            const body = `${statSetup}${controls}<div class="nm-actions" style="margin-top:12px;"><button type="button" class="nm-btn"${analyzeDisabled} data-action="ta-analyze">Analyze &amp; find clusters</button></div>`;
+            return `${head}${body}</div><div class="nm-actions"><button type="button" class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${this._sharedTailHTML()}</div>`;
+        }
+
+        const clusters = st.tagAnalyzerClusters || [];
+        const orphans = st.tagAnalyzerOrphans || [];
+        const lowN = st.tagAnalyzerLastLowCount || 0;
+        const savings = lowN - clusters.length - orphans.length;
+        const statsRes = `<div class="nm-ta-stat-grid nm-ta-stat-grid--4"><div class="nm-ta-stat-card"><div class="nm-ta-stat-val">${lowN}</div><div class="nm-ta-stat-lbl">Low-use tags</div></div><div class="nm-ta-stat-card"><div class="nm-ta-stat-val">${clusters.length}</div><div class="nm-ta-stat-lbl">Clusters</div></div><div class="nm-ta-stat-card"><div class="nm-ta-stat-val">${orphans.length}</div><div class="nm-ta-stat-lbl">Orphans</div></div><div class="nm-ta-stat-card"><div class="nm-ta-stat-val">${savings}</div><div class="nm-ta-stat-lbl">Potential savings</div></div></div><p class="nm-muted" style="font-size:12px;margin:-4px 0 8px;">Low-use count minus clusters minus orphans (same idea as the Tag Triage reference).</p>`;
+        const order = st.tagAnalyzerClusterOrder || 'processed';
+        const orderBtns = `<div class="nm-inline" style="margin:10px 0;gap:8px;flex-wrap:wrap;align-items:center;"><span class="nm-muted" style="font-size:12px">Order clusters:</span><button type="button" class="nm-btn${order === 'processed' ? '' : ' nm-btn--secondary'}" data-action="ta-cluster-order" data-order="processed">Processed</button><button type="button" class="nm-btn${order === 'size-desc' ? '' : ' nm-btn--secondary'}" data-action="ta-cluster-order" data-order="size-desc">Size (desc)</button><button type="button" class="nm-btn${order === 'combined-desc' ? '' : ' nm-btn--secondary'}" data-action="ta-cluster-order" data-order="combined-desc">Combined count (desc)</button></div>`;
+        const clusterHtml = orderBtns + this._tagAnalyzerClusterBlocksHTML() + this._tagAnalyzerManualPickHTML();
+        const orphanBlock = orphans.length
+            ? `<div id="nm-ta-orphan-tags" class="nm-card" style="margin-top:12px;"><div class="nm-inline" style="justify-content:space-between;align-items:center;width:100%;margin-bottom:6px;gap:8px;"><p class="nm-title" style="font-size:14px;margin:0;">Orphan tags</p><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-copy-orphans">Copy</button></div><p class="nm-muted" style="margin-bottom:8px;">Low-use tags that did not join any cluster. Review or rename them manually.</p><div class="nm-ta-pills">${orphans.map(t => `<span class="nm-ta-pill" style="cursor:default"><span class="nm-muted">#</span>${this._escape(t.name)} <span class="nm-muted">(${t.count})</span></span>`).join('')}</div></div>`
+            : '';
+        const exportJson = st.tagAnalyzerExportVisible ? this._tagAnalyzerExportPlanDisplayText() : '';
+        const exportBlock = st.tagAnalyzerExportVisible
+            ? `<div id="nm-ta-export-json" class="nm-card" style="margin-top:12px;"><div class="nm-inline" style="justify-content:space-between;align-items:center;width:100%;margin-bottom:6px;gap:8px;"><span class="nm-label" style="margin:0;flex-shrink:0">Consolidation plan (JSON)</span><div class="nm-inline" style="gap:8px;flex-shrink:0;margin-left:auto"><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-save-plan">Save export JSON</button><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-copy-plan">Copy</button></div></div><pre class="nm-ta-export-pre">${this._escape(exportJson)}</pre></div>`
+            : '';
+        const exportToggleLabel = st.tagAnalyzerExportVisible ? 'Close export JSON' : 'Show export JSON';
+        const jumpOrphansDisabled = orphans.length ? '' : ' disabled';
+        const resBody = `<button type="button" class="nm-btn nm-btn--secondary" data-action="ta-back-analyzer" style="margin-bottom:10px;">← Change threshold / sensitivity</button>${statsRes}<div class="nm-actions" style="margin:8px 0 10px;"><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-jump-export">Jump to export JSON</button><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-jump-orphans"${jumpOrphansDisabled}>Jump to orphan tags</button></div><p class="nm-title" style="margin-top:8px;font-size:14px;">Consolidation clusters</p>${clusterHtml}${orphanBlock}<div class="nm-actions" style="margin-top:12px;"><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-export-plan">${exportToggleLabel}</button></div>${exportBlock}`;
+        return `${head}${resBody}</div><div class="nm-actions"><button type="button" class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${this._sharedTailHTML()}</div>`;
+    }
+
     _render(panel) {
         const el = panel.getElement();
         if (!el) return;
@@ -451,6 +1092,8 @@ ${this._sharedTailHTML()}
         else if (this._mode === 'assign-parent') html = this._buildAssignParentHTML();
         else if (this._mode === 'tag-rename') html = this._buildTagRenameHTML();
         else if (this._mode === 'tag-review') html = this._buildTagReviewHTML();
+        else if (this._mode === 'tag-analyzer') html = this._buildTagAnalyzerHTML();
+        else if (this._mode === 'tag-merge') html = this._buildTagMergeHTML();
         else html = this._buildHomeHTML();
         el.innerHTML = html;
         if (this._listenerAbort) this._listenerAbort.abort();
@@ -477,17 +1120,18 @@ ${this._sharedTailHTML()}
             switch (action) {
                 case 'set-mode': {
                     const next = target.dataset.mode || 'home';
+                    if (this._mode === 'tag-merge' && next !== 'tag-merge') this._resetTagMergeState();
                     if (next === 'home') {
                         if (this._mode === 'bulk-move') await this._resetBulkMoveForm();
                         if (this._mode === 'assign-parent') this._resetAssignForm();
-                        if (this._mode === 'tag-rename' || this._mode === 'tag-review') this._resetTagForm();
+                        if (this._mode === 'tag-rename' || this._mode === 'tag-review' || this._mode === 'tag-analyzer') this._resetTagForm();
                     }
                     this._mode = next;
                     this._settings.defaultMode = next;
                     this._saveSettings();
                     if (next === 'bulk-move') await this._ensureBulkMoveLoaded();
                     if (next === 'assign-parent') await this._ensureAssignLoaded();
-                    if (next === 'tag-rename' || next === 'tag-review') await this._ensureTagLoaded(true);
+                    if (next === 'tag-rename' || next === 'tag-review' || next === 'tag-analyzer' || next === 'tag-merge') await this._ensureTagLoaded(true);
                     if (this._panel) this._render(this._panel);
                     break;
                 }
@@ -641,8 +1285,172 @@ ${this._sharedTailHTML()}
                 case 'tr-refresh-index':
                     await this._refreshTagIndex();
                     this._toast('Tag index', 'Index refreshed.', 2500);
+                    if (this._mode === 'tag-analyzer') this._tagAnalyzerClearResults();
+                    if (this._mode === 'tag-merge' && this._tagMergeState.rows.length) this._tagMergeRefreshRowIndexCounts();
                     if (this._panel) this._render(this._panel);
                     break;
+                case 'tm-choose-file': {
+                    const fin = el.querySelector('.nm-tm-file');
+                    if (fin instanceof HTMLInputElement) fin.click();
+                    break;
+                }
+                case 'tm-clear-plan':
+                    this._resetTagMergeState();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'tm-toggle-totals':
+                    this._tagMergeState.totalsOpen = !this._tagMergeState.totalsOpen;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'tm-skip-all': {
+                    const checked = !!target.checked;
+                    for (const row of this._tagMergeState.rows) row.skip = checked;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'tm-preview':
+                    await this._previewTagMerge();
+                    break;
+                case 'tm-apply':
+                    await this._applyTagMerge();
+                    break;
+                case 'ta-analyze':
+                    this._runTagAnalyzerClustering();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'ta-back-analyzer':
+                    this._tagAnalyzerClearResults();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'ta-toggle-cluster': {
+                    const cid = Number(target.dataset.id);
+                    if (!Number.isFinite(cid)) break;
+                    this._tagState.tagAnalyzerOpenClusterId = this._tagState.tagAnalyzerOpenClusterId === cid ? null : cid;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'ta-pick-replacement': {
+                    const rid = Number(target.dataset.id);
+                    let tname = '';
+                    try {
+                        tname = decodeURIComponent(target.dataset.tag || '');
+                    } catch (_) {
+                        tname = '';
+                    }
+                    if (!Number.isFinite(rid) || !tname) break;
+                    this._tagState.tagAnalyzerReplacements[rid] = tname;
+                    this._tagState.tagAnalyzerOpenClusterId = rid;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'ta-cluster-order': {
+                    const o = target.dataset.order;
+                    if (o === 'processed' || o === 'size-desc' || o === 'combined-desc') this._tagState.tagAnalyzerClusterOrder = o;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'ta-manual-pick-clear':
+                    this._tagState.tagAnalyzerPickSelected = [];
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'ta-toggle-manual':
+                    this._tagState.tagAnalyzerManualOpen = !this._tagState.tagAnalyzerManualOpen;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'ta-manual-add': {
+                    const st = this._tagState;
+                    const sel = [...(st.tagAnalyzerPickSelected || [])];
+                    if (sel.length < 2) break;
+                    const tidx = Array.isArray(st.tagIndex) ? st.tagIndex : [];
+                    const byName = new Map(tidx.map(e => [String(e.tag ?? '').trim(), e]));
+                    const members = sel
+                        .map(name => {
+                            const e = byName.get(name);
+                            return e ? { name, count: Number(e.count) || 0 } : null;
+                        })
+                        .filter(Boolean);
+                    if (members.length < 2) break;
+                    const best = members.reduce((a, b) => ((b.count || 0) > (a.count || 0) ? b : a));
+                    const id = ++st.tagAnalyzerNextClusterId;
+                    st.tagAnalyzerClusters.push({
+                        id,
+                        members,
+                        suggestedReplacement: best.name,
+                        totalCount: members.reduce((s, m) => s + (m.count || 0), 0),
+                        omitFromExport: false,
+                        manual: true,
+                    });
+                    st.tagAnalyzerPickSelected = [];
+                    st.tagAnalyzerPickFilter = '';
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'ta-export-plan':
+                    this._tagState.tagAnalyzerExportVisible = !this._tagState.tagAnalyzerExportVisible;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'ta-jump-export':
+                    this._tagState.tagAnalyzerExportVisible = true;
+                    if (this._panel) this._render(this._panel);
+                    requestAnimationFrame(() => {
+                        const exportEl = el.querySelector('#nm-ta-export-json');
+                        if (exportEl) exportEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    });
+                    break;
+                case 'ta-jump-orphans':
+                    requestAnimationFrame(() => {
+                        const orphanEl = el.querySelector('#nm-ta-orphan-tags');
+                        if (orphanEl) orphanEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    });
+                    break;
+                case 'ta-save-plan': {
+                    const json = JSON.stringify(this._tagAnalyzerExportPlanJson(), null, 2);
+                    try {
+                        const blob = new Blob([json], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        const d = new Date();
+                        const ts = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
+                        a.download = `tag-consolidation-plan-${ts}.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        URL.revokeObjectURL(url);
+                        this._toast('Tag analyzer', 'Export saved.', 2500);
+                    } catch (e) {
+                        this._toast('Tag analyzer', `Save failed: ${String(e?.message || e)}`, 3500);
+                    }
+                    break;
+                }
+                case 'ta-copy-plan': {
+                    const json = JSON.stringify(this._tagAnalyzerExportPlanJson(), null, 2);
+                    try {
+                        await navigator.clipboard.writeText(json);
+                        this._toast('Tag analyzer', 'Plan copied to clipboard.', 2500);
+                    } catch (_) {
+                        this._toast('Tag analyzer', 'Copy failed.', 3000);
+                    }
+                    break;
+                }
+                case 'ta-copy-orphans': {
+                    const rows = (this._tagState.tagAnalyzerOrphans || []).map(t => {
+                        const name = String(t?.name ?? '').trim();
+                        const count = Number(t?.count) || 0;
+                        return name ? `#${name} (${count})` : '';
+                    }).filter(Boolean);
+                    if (!rows.length) {
+                        this._toast('Tag analyzer', 'No orphan tags to copy.', 2500);
+                        break;
+                    }
+                    try {
+                        await navigator.clipboard.writeText(rows.join('\n'));
+                        this._toast('Tag analyzer', 'Orphan tags copied to clipboard.', 2500);
+                    } catch (_) {
+                        this._toast('Tag analyzer', 'Copy failed.', 3000);
+                    }
+                    break;
+                }
                 case 'tr-trace': await this._traceCurrentTag(); if (this._panel) this._render(this._panel); break;
                 case 'tr-preview': await this._previewTagRename(); if (this._panel) this._render(this._panel); break;
                 case 'tr-apply': await this._applyTagRename(); if (this._panel) this._render(this._panel); break;
@@ -897,6 +1705,74 @@ ${this._sharedTailHTML()}
         if (rgFilter) rgFilter.addEventListener('input', () => { this._tagState.reviewGridFilter = rgFilter.value; if (this._panel) this._render(this._panel); }, { signal });
         const rgSort = el.querySelector('.nm-rg-sort');
         if (rgSort) rgSort.addEventListener('change', () => { this._tagState.reviewGridSort = rgSort.value; if (this._panel) this._render(this._panel); }, { signal });
+        const taTh = el.querySelector('.nm-ta-threshold-range');
+        if (taTh) taTh.addEventListener('input', () => { this._tagState.tagAnalyzerThreshold = Number(taTh.value) || 1; if (this._panel) this._render(this._panel); }, { signal });
+        const taSim = el.querySelector('.nm-ta-sim-range');
+        if (taSim) taSim.addEventListener('input', () => { this._tagState.tagAnalyzerSimPercent = Number(taSim.value) || 35; if (this._panel) this._render(this._panel); }, { signal });
+        const taManFilter = el.querySelector('.nm-ta-manual-filter');
+        if (taManFilter) taManFilter.addEventListener('input', () => { this._tagState.tagAnalyzerPickFilter = taManFilter.value; if (this._panel) this._render(this._panel); }, { signal });
+        const tmFile = el.querySelector('.nm-tm-file');
+        if (tmFile) {
+            tmFile.addEventListener('change', async () => {
+                const f = tmFile.files && tmFile.files[0];
+                tmFile.value = '';
+                if (!f) return;
+                await this._ensureTagLoaded(true);
+                try {
+                    const text = await f.text();
+                    const parsed = JSON.parse(text);
+                    const { rows, parseNotes } = this._tagMergeNormalizePlan(parsed);
+                    this._tagMergeState.rows = rows;
+                    this._tagMergeState.parseNotes = parseNotes;
+                    this._tagMergeState.fileName = f.name || 'plan.json';
+                    this._tagMergeState.output = '';
+                    this._toast('Tag merge', rows.length ? `Loaded ${rows.length} row(s).` : 'No rows after validation.', rows.length ? 2500 : 4000);
+                } catch (err) {
+                    this._toast('Tag merge', `Invalid JSON: ${String(err?.message || err)}`, 4500);
+                    this._resetTagMergeState();
+                }
+                if (this._panel) this._render(this._panel);
+            }, { signal });
+        }
+        el.addEventListener('change', e => {
+            const omit = e.target.closest('.nm-ta-omit-cb');
+            if (omit) {
+                const oid = Number(omit.dataset.clusterId);
+                const cl = this._tagState.tagAnalyzerClusters.find(c => c.id === oid);
+                if (cl) cl.omitFromExport = !!omit.checked;
+                if (this._panel) this._render(this._panel);
+                return;
+            }
+            const tmSkip = e.target.closest('.nm-tm-skip-cb');
+            if (tmSkip) {
+                const rid = tmSkip.dataset.rowId || '';
+                const row = this._tagMergeState.rows.find(r => r.id === rid);
+                if (row) row.skip = !!tmSkip.checked;
+                if (this._panel) this._render(this._panel);
+                return;
+            }
+            const man = e.target.closest('.nm-ta-manual-cb');
+            if (!man) return;
+            let tname = '';
+            try {
+                tname = decodeURIComponent(man.dataset.tag || '');
+            } catch (_) {
+                tname = '';
+            }
+            if (!tname) return;
+            const set = new Set(this._tagState.tagAnalyzerPickSelected || []);
+            if (man.checked) set.add(tname);
+            else set.delete(tname);
+            this._tagState.tagAnalyzerPickSelected = [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+            if (this._panel) this._render(this._panel);
+        }, { signal });
+        el.addEventListener('input', e => {
+            const cin = e.target.closest('.nm-ta-target-input');
+            if (!cin) return;
+            const cid = Number(cin.dataset.clusterId);
+            if (!Number.isFinite(cid)) return;
+            this._tagState.tagAnalyzerReplacements[cid] = cin.value;
+        }, { signal });
         el.querySelectorAll('.nm-rg-override-wrap').forEach(wrap => {
             const input = wrap.querySelector('.nm-rg-row-target');
             const box = wrap.querySelector('.nm-rg-override-suggest');
@@ -2266,16 +3142,24 @@ ${this._sharedTailHTML()}
         const q = this.cleanTag(rawValue).toLowerCase();
         const list = Array.isArray(this._tagState.tagIndex) ? this._tagState.tagIndex : [];
         if (!q) return list.slice(0, 20);
-        return list
-            .filter(t => t.tag.toLowerCase().includes(q))
-            .sort((a, b) => {
-                const as = a.tag.toLowerCase().startsWith(q) ? 0 : 1;
-                const bs = b.tag.toLowerCase().startsWith(q) ? 0 : 1;
-                if (as !== bs) return as - bs;
-                const byName = this._compareTagNamesForSort(a.tag, b.tag);
-                if (byName !== 0) return byName;
-                return b.count - a.count;
-            });
+        const starts = [];
+        const contains = [];
+        for (const t of list) {
+            const tag = String(t?.tag || '');
+            const lower = tag.toLowerCase();
+            if (!lower.includes(q)) continue;
+            if (lower.startsWith(q)) starts.push(t);
+            else contains.push(t);
+        }
+        const byNameThenCount = (a, b) => {
+            const byName = this._compareTagNamesForSort(a.tag, b.tag);
+            if (byName !== 0) return byName;
+            return (Number(b.count) || 0) - (Number(a.count) || 0);
+        };
+        starts.sort(byNameThenCount);
+        if (starts.length >= 20) return starts.slice(0, 20);
+        contains.sort(byNameThenCount);
+        return starts.concat(contains).slice(0, 20);
     }
 
     _logRow(operation, status, row, detail) {
@@ -2504,6 +3388,9 @@ ${this._sharedTailHTML()}
         st.reviewGridOutput = '';
         st.excludedPickerOpen = false;
         st.excludedPickerFilter = '';
+        st.tagAnalyzerThreshold = 5;
+        st.tagAnalyzerSimPercent = 35;
+        this._tagAnalyzerClearResults();
         this._status = '';
     }
 
@@ -2539,7 +3426,7 @@ ${this._sharedTailHTML()}
     _captureFocusState(rootEl) {
         const active = document.activeElement;
         if (!(active instanceof HTMLInputElement) || !rootEl.contains(active)) return null;
-        const known = ['.nm-bm-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-tr-exclude-picker-filter', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter'];
+        const known = ['.nm-bm-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-tr-exclude-picker-filter', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter', '.nm-ta-target-input'];
         const selector = known.find(sel => active.matches(sel));
         if (!selector) return null;
         return { selector, selectionStart: active.selectionStart, selectionEnd: active.selectionEnd };
@@ -2556,7 +3443,7 @@ ${this._sharedTailHTML()}
     }
 
     _captureScrollState(rootEl) {
-        const selectors = ['.nm-table-wrap', '.nm-list-rows', '.nm-log-table-wrap', '.nm-exclude-picker-panel'];
+        const selectors = ['.nm-table-wrap', '.nm-tm-table-wrap', '.nm-list-rows', '.nm-log-table-wrap', '.nm-exclude-picker-panel'];
         const items = [];
         selectors.forEach(sel => {
             rootEl.querySelectorAll(sel).forEach((el, idx) => items.push({ sel, idx, top: el.scrollTop, left: el.scrollLeft }));

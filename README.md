@@ -4,9 +4,22 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Version
 
-- **Current version:** `1.0.2`
+- **Current version:** `1.0.3`
 
-### What’s new in 1.0.2
+### What’s new in 1.0.3
+
+**Updated**
+
+- **Tag analyzer wording:** Updated cluster editing terminology from canonical to target (for example, **Canonical tag** is now **Target tag**).
+- **Export JSON toggle behavior:** The button now toggles between **Show export JSON** and **Close export JSON**; clicking again closes the export panel.
+- **Tag analyzer quick jumps:** Added **Jump to export JSON** (opens and scrolls) and **Jump to orphan tags** (scrolls; disabled when there are no orphan tags).
+- **Orphan tags copy action:** Added **Copy** on the Orphan tags header to copy orphan tags with counts to clipboard.
+- **Manual cluster section UX:** **Add manual cluster** is now collapsible with a chevron preface header and starts collapsed by default.
+- **Tag suggestion responsiveness:** Improved tag suggestion lookup to prioritize prefix matches and reduce unnecessary sorting work on large tag indexes.
+- **Trace copy consistency:** Trace helper wording now matches the action label (**Trace tag source**) for a clearer, consistent UX.
+- **Navigation order:** On **Home**, the header **menu** (after **Home**), and the **command palette** (after **Notes Manager: Open**), tool shortcuts are listed **A–Z** by label. The first Home shortcut is still the primary button style (**Assign subpages**).
+
+### What was new in 1.0.2
 
 **Fixed**
 
@@ -16,6 +29,8 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 **Updates**
 
 - **Suggestion lists everywhere:** Same idea on **Current tag**, **Assign subpages → Parent note**, **Review Grid** source/default/override fields: arrow keys move the highlight, **Enter** picks (or runs **Find matches** on the source field when the floating list isn’t open), **Esc** closes the list. The row under the keyboard is highlighted so you can see what you’re about to pick.
+- **Tag analyzer:** Tag index is filled in automatically; set a **usage threshold** and **similarity** slider, then **Analyze** to find merge-style clusters (same clustering idea as the standalone Tag Triage HTML tool). Export a JSON consolidation plan; apply renames separately in **Tag rename** / **Review Grid**.
+- **Tag merge:** Added a dedicated **Tag merge** workflow to load/export consolidation-plan JSON and apply merge rows with the same preview/apply scan behavior used by Tag rename.
 
 ### What was new in 1.0.1
 
@@ -27,8 +42,12 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Included Tools
 
-- **Bulk move notes**
+(List order matches the Home screen and menu: A–Z by label.)
+
 - **Assign subpages**
+- **Bulk move notes**
+- **Tag analyzer**
+- **Tag merge**
 - **Tag rename (quick)**
 - **Tag review (advanced)**
 
@@ -37,10 +56,13 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 ### Shared Panel UX
 
 - Native custom panel with top menu and breadcrumb path (`Home / ...`).
+- **Home** and the **menu** list tools in **A–Z** order by label (menu keeps **Home** first, then tools alphabetically).
 - Command palette entries for:
-  - `Open Notes Manager`
-  - `Notes Manager: Bulk move notes`
+  - `Notes Manager: Open`
   - `Notes Manager: Assign subpages`
+  - `Notes Manager: Bulk move notes`
+  - `Notes Manager: Tag analyzer`
+  - `Notes Manager: Tag merge`
   - `Notes Manager: Tag rename (quick)`
   - `Notes Manager: Tag review (advanced)`
 - Sidebar shortcut: `Notes Manager`.
@@ -90,6 +112,27 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
   - Header-level default/skip checkboxes for visible rows.
 - After a successful grid **Rename**, the queue clears and the tag index updates quietly; read the summary in the grid output area.
 - Review Grid preview/apply outputs mirrored to review log.
+
+### Tag analyzer
+
+- Opens from **Home** or the command palette. Tag names and counts come from the **same tag index** as rename/review (no manual paste).
+- **Usage threshold:** tags at or below this use-count are “low-use” seeds for clustering (slider max grows with your data).
+- **Similarity sensitivity:** 15–70% (same role as the reference tool: lower = looser string/token matches, higher = stricter). Clustering blends normalized Levenshtein, token Jaccard, and a small bonus when one tag contains the other (tokenization uses letters and numbers in any language).
+- **Analyze** builds clusters (expand a row to pick a target tag or type one), lists **orphan** low-use tags that matched no cluster, and shows **Potential savings** (same count formula as the reference).
+- **Jump controls:** **Jump to export JSON** opens/scrolls to the export panel; **Jump to orphan tags** scrolls to the orphan section (disabled when there are no orphans).
+- **Show export JSON** opens the consolidation plan and switches to **Close export JSON** while open. The preview shows **Clusters in export** and **JSON lines** (line count of the pretty-printed body) above the array, then the plan (`replacement`, `merging`, `combinedCount` per cluster). **Save export JSON** and **Copy** still output a valid JSON **array** only (for Tag merge and other tools). Applying merges in Thymer is still a manual or Tag-rename step.
+- **Orphan tags:** Header includes a **Copy** action to copy orphan tags and counts to clipboard.
+- **Add manual cluster:** Section is collapsible (chevron header) and closed by default.
+- Index scope (case-sensitive, exclude choice/enum, excluded collections) is still controlled under **Matching options** on Tag rename / Tag review, then **Refresh index** here (refresh returns you to the threshold screen).
+
+### Tag merge
+
+- Opens from **Home** or the command palette to apply a consolidation plan generated from Tag analyzer or another workflow.
+- Loads a JSON array where each cluster object includes `replacement`, `merging`, and `combinedCount`.
+- Expands each `merging` tag into individual rows and supports per-row **Skip** before preview/apply.
+- Uses the same scan/replace behavior as Tag rename for consistent hashtag replacement semantics.
+- Includes **Preview** and **Apply**, row-level statuses, and a collapsible **Per-cluster totals** view.
+- Uses the same tag-index scope controls (case-sensitive, exclude choice/enum, excluded collections) via shared matching options + **Refresh index**.
 
 ### Review Log + Status + Toasts
 
