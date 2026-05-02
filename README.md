@@ -4,7 +4,28 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Version
 
-- **Current version:** `1.0.3`
+- **Current version:** `1.0.5`
+
+### What’s new in 1.0.5
+
+**Tag review (advanced) — Add tag, Remove tag, Thymer SDK**
+
+- **Add tag — tab:** Third workflow after **Remove tag**: free-text tag, **Record filter** (title + first two body lines), **Narrow rows**, **Find matches** / **Preview** / **Apply**, review log.
+- **Add tag — selection:** Queue rows start with **no** row checked for **Add**; use per-row **Add** or the **Add** column header for visible rows. **Preview** / **Apply** prompt if nothing is marked for add.
+- **Add tag — after apply:** Clears the whole Add tab (tag, record filter, narrow rows, sort, queue), then shows the completion summary in the output area.
+- **Add tag — apply output:** Summary **counts** (unique marked, attempts, writes, no-write, errors) plus **Updated records** (live title, placement, GUID). **Review log:** one **`applied`** or **`failed`** row per record, plus summary.
+- **Remove tag — apply output:** Same summary + **Updated records** list and per-record **Review log** rows as Add tag apply.
+- **Add tag — Tags / hashtag property (SDK):** **`record.prop('Tags')`** / **`record.prop('Tag')`** are tried first, then **`getAllProperties()`**. A column counts as **hashtag-typed** if **any** hint among `getType()`, `type`, `propertyType`, `fieldType`, or `kind` equals **`hashtag`** or contains the word **`hashtag`**. The queue also treats a **Tags** / **Tag** column as writable when it supports **`addValue`** or **`set`** + **`texts()`** / **`values()`**, is **not** a choice enum (`choices()` array), and either is hashtag-typed or uses that name (covers API quirks where the type string is not exactly `hashtag`). Among candidates, prefer **Tags** / **Tag**, then names containing `tag`, then **`isMultiValue()`**. Apply uses **`addValue`** when **`isMultiValue()`** is true, otherwise **`texts()`** / **`values()`** + **`set(array)`**. **Stored value:** hashtag-typed fields get the **tag token only** (no leading `#`; Thymer renders `#` — passing `#tag` could show as `##tag`). Plain text–style Tags columns follow existing entries (`#`-prefixed vs plain; empty column defaults to `#tag`). Duplicate checks scan every queueable property. If none qualify: new body line with `#tag` and one trailing space.
+- **Tag index / trace:** **`shouldScanTextPropertyForTags`** is true for hashtag-typed properties **or** columns named **Tags** / **Tag**, even when the name does not otherwise contain “tag”.
+- **Line items:** Body hashtag segments use the same **`hashtag`** constant as the SDK segment type.
+
+### What’s new in 1.0.4
+
+**Tag review (advanced)**
+
+- **Remove tag:** Sub-workflow under **Advanced workflow** (next to **Review Grid**). Find matches on body hashtag segments, plain `#tags` in text segments, and tag-like **text** properties (same text-field rules as trace; choice/enum fields are not edited). **Preview** / **Apply** with skip/remove columns; apply summary reports **Records modified (writes applied)** based on actual writes (accurate when some rows are skipped). After apply, the remove queue and tag field clear, the tag index refreshes quietly, and the Review Grid inputs/queue reset.
+- **Remove tag suggestions:** Tag index refresh also tags **choice-only** tags (present in the full index but not when choice/enum sources are excluded); those tags are omitted from the remove-tag suggestion list.
+- **One row per record:** **Review Grid** and **Remove tag** queues collapse multiple hits in the same note to a single row, with a short hint when there are several locations. Rename/remove still apply across every matching location in that record.
 
 ### What’s new in 1.0.3
 
@@ -98,18 +119,22 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - Refresh index action with toast feedback.
 - Preview and apply workflows with detailed multi-line outputs.
 - Preview/apply outputs mirrored to review log.
+- **Properties:** For each record, **`prop.texts()`** is read, matching values are rewritten, then **`prop.set([...])`** replaces the full list (multi-value hashtag / text-like tag columns included when they pass the same “text-like for tags” rules as the index). Choice/enum columns use **`setChoice`** when `choices()` is an array.
 
 ### Tag Review (Advanced)
 
 - Tag trace workflow with collapsible trace output and copy button.
+- **Advanced workflow** toggles **Review Grid**, **Remove tag**, and **Add tag** (shared **Refresh index** and **Matching options**). Choosing **Remove tag** or **Add tag** clears Review Grid source/queue/target fields; **Review Grid** clears both other queues; **Remove tag** and **Add tag** clear each other’s queue when switching between them.
 - Review Grid workflow:
   - Source and default target (`#source-tag`, `#default-target`) with tag suggestions; **Enter** runs or re-runs **Find matches** where applicable; clearing the source clears the queue.
-  - Queue **build**, **preview** (detailed plan), and **rename** (apply).
+  - Queue **build**, **preview** (detailed plan), and **rename** (apply). **Find matches** produces **one row per record** when the same note matches multiple times; the row notes how many tag locations were found.
   - **Meta line:** visible vs total rows, plus counts for default / skip / override.
   - Filter and sort, including **Group by tag** (per matched tag, with group default/skip and open-record from the title when grouped).
   - Sticky grid header + sticky first column.
   - Per-row **Default** / **Skip** / **Override** (suggestions from the tag index; **×** to clear an override).
   - Header-level default/skip checkboxes for visible rows.
+- **Remove tag:** Tag to remove (suggestions exclude choice-only tags), filter/sort, **Find matches** / **Preview** / **Apply**; one row per record with the same location-count hint; review log entries for remove-tag preview/summary.
+- **Add tag:** New tag (plain input), record filter + table narrow filter, **Find matches** / **Preview** / **Apply**; opt-in **Add** / **Skip**; **`record.prop('Tags')`/`('Tag')`** first, then hashtag-typed or **Tags**/**Tag** columns (`addValue` / `texts`+`set`); hashtag fields persist the **token without `#`**; body fallback remains `#tag` + trailing space; detailed apply output + review log; preview/summary logged.
 - After a successful grid **Rename**, the queue clears and the tag index updates quietly; read the summary in the grid output area.
 - Review Grid preview/apply outputs mirrored to review log.
 
@@ -189,5 +214,5 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Implementation Notes
 
-- Built on Thymer SDK APIs (`AppPlugin`, UI panel APIs, data/record APIs).
+- Built on Thymer SDK APIs (`AppPlugin`, UI panel APIs, data/record APIs). Property and segment **`hashtag`** handling follows [thymerapp/thymer-plugin-sdk](https://github.com/thymerapp/thymer-plugin-sdk) `types.d.ts` (`PluginProperty`, `PluginRecord.prop`, `PROP_TYPE_HASHTAG`).
 - Single-file implementation for runtime logic: `notes-manager-plugin.js`.

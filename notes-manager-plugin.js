@@ -1,4 +1,7 @@
-const NOTES_MANAGER_VERSION = '1.0.3';
+/** @see thymerapp/thymer-plugin-sdk types.d.ts PROP_TYPE_HASHTAG, PLUGIN_LINE_ITEM_SEGMENT_TYPE_HASHTAG */
+const THYMER_TYPE_HASHTAG = 'hashtag';
+
+const NOTES_MANAGER_VERSION = '1.0.5';
 
 class NotesManagerPanel {
     constructor(plugin) {
@@ -91,6 +94,23 @@ class NotesManagerPanel {
             reviewGridCollapsedSources: new Set(),
             reviewGridMeta: 'No queue built.',
             reviewGridOutput: '',
+            tagReviewSubMode: 'grid',
+            removeTagTag: '',
+            removeTagSearchOpen: false,
+            removeTagFilter: '',
+            removeTagSort: 'title-asc',
+            removeTagRows: [],
+            removeTagMeta: 'No queue built.',
+            removeTagOutput: '',
+            addTagTag: '',
+            addTagRecordFilter: '',
+            addTagTableFilter: '',
+            addTagSort: 'title-asc',
+            addTagRows: [],
+            addTagMeta: 'No queue built.',
+            addTagOutput: '',
+            /** Tags that appear in the full index but not when choice/enum sources are excluded (suggest filter for Remove tag). */
+            tagChoiceOnlyTags: new Set(),
             excludedPickerOpen: false,
             excludedPickerFilter: '',
             excludePickerCollections: [],
@@ -416,6 +436,83 @@ ${pickerHtml}
         const gridRows = this._reviewGridRowsForDisplay();
         const defaultHeaderLabel = (this.cleanTag(st.reviewGridDefaultTarget || st.newTag) || 'Default').toUpperCase();
         const reviewGridMeta = this._reviewGridMetaSummary(gridRows);
+        const sub = st.tagReviewSubMode === 'remove' ? 'remove' : st.tagReviewSubMode === 'add' ? 'add' : 'grid';
+        const rtRows = this._removeTagRowsForDisplay();
+        const removeTagMeta = this._removeTagMetaSummary(rtRows);
+        const atRows = this._addTagRowsForDisplay();
+        const addTagMeta = this._addTagMetaSummary(atRows);
+        const reviewWorkflowCard = sub === 'grid'
+            ? (`<div class="nm-card nm-review-grid-output" style="margin-top:10px">
+<p class="nm-title">Review Grid</p>
+<p class="nm-text">Build a queue from a source tag, then preview/apply with default target and per-row overrides.</p>
+<div class="nm-field-grid">
+<div class="nm-field">
+<label class="nm-label">#source-tag</label>
+<div class="nm-input-wrap nm-rg-source-host">
+<input class="nm-input nm-rg-source" type="text" value="${this._escape(st.reviewGridSourceTag)}" placeholder="#source-tag" title="Tag index: ArrowDown opens list; arrows navigate; Enter picks when list open, else Find matches; Esc closes list. Clear drops queue." autocomplete="off">
+${st.reviewGridSourceTag ? '<button class="nm-parent-clear" data-action="tr-rg-source-clear" title="Clear source tag">×</button>' : ''}
+<div class="nm-rg-source-suggest nm-rg-suggest" aria-hidden="true"></div>
+</div>
+</div>
+<div class="nm-field">
+<label class="nm-label">#default-target</label>
+<div class="nm-input-wrap">
+<input class="nm-input nm-rg-target" type="text" value="${this._escape(st.reviewGridDefaultTarget)}" placeholder="#default-target" title="Enter re-runs Find matches when a source tag is set." autocomplete="off">
+${st.reviewGridDefaultTarget ? '<button class="nm-parent-clear" data-action="tr-rg-target-clear" title="Clear default target">×</button>' : ''}
+</div>
+</div>
+<div class="nm-field"><label class="nm-label">Filter</label><input class="nm-input nm-rg-filter" type="text" value="${this._escape(st.reviewGridFilter)}" placeholder="title, source, preview..."></div>
+<div class="nm-field"><label class="nm-label">Sort</label><select class="nm-select nm-rg-sort"><option value="title-asc"${st.reviewGridSort === 'title-asc' ? ' selected' : ''}>Title A-Z</option><option value="title-desc"${st.reviewGridSort === 'title-desc' ? ' selected' : ''}>Title Z-A</option><option value="source-asc"${st.reviewGridSort === 'source-asc' ? ' selected' : ''}>Source A-Z</option><option value="source-desc"${st.reviewGridSort === 'source-desc' ? ' selected' : ''}>Source Z-A</option><option value="tag-group"${st.reviewGridSort === 'tag-group' ? ' selected' : ''}>Group by tag</option></select></div>
+</div>
+<div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-rg-build">Find matches</button><button class="nm-btn nm-btn--secondary" data-action="tr-rg-preview">Preview</button><button class="nm-btn" data-action="tr-rg-apply"${st.running ? ' disabled' : ''}>Rename</button></div>
+<div class="nm-status">${this._escape(reviewGridMeta)}</div>
+<div class="nm-table-wrap nm-rg-wrap"><table class="nm-table nm-rg-table"><thead><tr><th>Record title</th><th>First 2 lines</th><th style="width:90px"><label class="nm-inline"><input type="checkbox" data-action="tr-rg-default-all"${gridRows.length && gridRows.every(r => r.action === 'default') ? ' checked' : ''}> <span>${this._escape(defaultHeaderLabel)}</span></label></th><th style="width:80px"><label class="nm-inline"><input type="checkbox" data-action="tr-rg-skip-all"${gridRows.length && gridRows.every(r => r.action === 'skip') ? ' checked' : ''}> <span>Skip</span></label></th><th>Override tag</th></tr></thead><tbody>${this._reviewGridTableRowsHTML(gridRows)}</tbody></table></div>
+<div class="nm-status">${this._escape(st.reviewGridOutput || '')}</div>
+</div>`)
+            : sub === 'remove'
+                ? (`<div class="nm-card nm-remove-tag-output" style="margin-top:10px">
+<p class="nm-title">Remove tag</p>
+<p class="nm-text">Find hashtag segments, plain #tags in body text, and matching tag-like property values (same rules as trace for text fields). Choice/enum fields are not scanned; tags that only exist via choice/enum are omitted from suggestions.</p>
+<div class="nm-field-grid">
+<div class="nm-field">
+<label class="nm-label">Tag to remove</label>
+<div class="nm-input-wrap nm-rt-tag-host">
+<input class="nm-input nm-rt-tag" type="text" value="${this._escape(st.removeTagTag)}" placeholder="#tag" title="Suggestions exclude choice-only tags. ArrowDown opens list. Clear drops the queue." autocomplete="off">
+${st.removeTagTag ? '<button class="nm-parent-clear" data-action="tr-rt-tag-clear" title="Clear tag">×</button>' : ''}
+<div class="nm-rt-tag-suggest nm-rg-suggest" aria-hidden="true"></div>
+</div>
+</div>
+<div class="nm-field"><label class="nm-label">Filter</label><input class="nm-input nm-rt-filter" type="text" value="${this._escape(st.removeTagFilter)}" placeholder="title, source, preview..."></div>
+<div class="nm-field"><label class="nm-label">Sort</label><select class="nm-select nm-rt-sort"><option value="title-asc"${st.removeTagSort === 'title-asc' ? ' selected' : ''}>Title A-Z</option><option value="title-desc"${st.removeTagSort === 'title-desc' ? ' selected' : ''}>Title Z-A</option><option value="source-asc"${st.removeTagSort === 'source-asc' ? ' selected' : ''}>Source A-Z</option><option value="source-desc"${st.removeTagSort === 'source-desc' ? ' selected' : ''}>Source Z-A</option></select></div>
+</div>
+<div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-rt-build">Find matches</button><button class="nm-btn nm-btn--secondary" data-action="tr-rt-preview">Preview</button><button class="nm-btn" data-action="tr-rt-apply"${st.running ? ' disabled' : ''}>Apply</button></div>
+<div class="nm-status">${this._escape(removeTagMeta)}</div>
+<div class="nm-table-wrap nm-rg-wrap"><table class="nm-table nm-rg-table"><thead><tr><th>Record title</th><th>First 2 lines</th><th style="width:90px"><label class="nm-inline"><input type="checkbox" data-action="tr-rt-default-all"${rtRows.length && rtRows.every(r => r.action === 'default') ? ' checked' : ''}> <span>Remove</span></label></th><th style="width:80px"><label class="nm-inline"><input type="checkbox" data-action="tr-rt-skip-all"${rtRows.length && rtRows.every(r => r.action === 'skip') ? ' checked' : ''}> <span>Skip</span></label></th></tr></thead><tbody>${this._removeTagTableRowsHTML(rtRows)}</tbody></table></div>
+<div class="nm-status">${this._escape(st.removeTagOutput || '')}</div>
+</div>`)
+                : (`<div class="nm-card nm-add-tag-output" style="margin-top:10px">
+<p class="nm-title">Add tag</p>
+<p class="nm-text">Enter a new tag, optionally narrow by record filter (title and first lines of body). Tags already present on the note are skipped. If the record has a writable hashtag-type property (preferring one named Tags), the tag is stored there via addValue or by appending to the property’s value list (hashtag fields use the tag token without a leading #; the app shows #). Otherwise a new body line is appended at the bottom as #tag plus one trailing space.</p>
+<div class="nm-field-grid">
+<div class="nm-field">
+<label class="nm-label">Tag to add</label>
+<div class="nm-input-wrap">
+<input class="nm-input nm-at-tag" type="text" value="${this._escape(st.addTagTag)}" placeholder="new-tag" title="Plain text; # is optional. Enter runs Find matches." autocomplete="off">
+${st.addTagTag ? '<button class="nm-parent-clear" data-action="tr-at-tag-clear" title="Clear tag">×</button>' : ''}
+</div>
+</div>
+<div class="nm-field">
+<label class="nm-label">Record filter</label>
+<input class="nm-input nm-at-record-filter" type="text" value="${this._escape(st.addTagRecordFilter)}" placeholder="title or body preview contains…" title="Only records whose title or first two body lines match this substring (case-insensitive) are queued. Leave empty for all records in scope.">
+</div>
+<div class="nm-field"><label class="nm-label">Narrow rows</label><input class="nm-input nm-at-table-filter" type="text" value="${this._escape(st.addTagTableFilter)}" placeholder="title, source, preview..."></div>
+<div class="nm-field"><label class="nm-label">Sort</label><select class="nm-select nm-at-sort"><option value="title-asc"${st.addTagSort === 'title-asc' ? ' selected' : ''}>Title A-Z</option><option value="title-desc"${st.addTagSort === 'title-desc' ? ' selected' : ''}>Title Z-A</option><option value="source-asc"${st.addTagSort === 'source-asc' ? ' selected' : ''}>Source A-Z</option><option value="source-desc"${st.addTagSort === 'source-desc' ? ' selected' : ''}>Source Z-A</option></select></div>
+</div>
+<div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-at-build">Find matches</button><button class="nm-btn nm-btn--secondary" data-action="tr-at-preview">Preview</button><button class="nm-btn" data-action="tr-at-apply"${st.running ? ' disabled' : ''}>Apply</button></div>
+<div class="nm-status">${this._escape(addTagMeta)}</div>
+<div class="nm-table-wrap nm-rg-wrap"><table class="nm-table nm-rg-table"><thead><tr><th>Record title</th><th>First 2 lines</th><th style="width:90px"><label class="nm-inline"><input type="checkbox" data-action="tr-at-default-all"${atRows.length && atRows.every(r => r.action === 'default') ? ' checked' : ''}> <span>Add</span></label></th><th style="width:80px"><label class="nm-inline"><input type="checkbox" data-action="tr-at-skip-all"${atRows.length && atRows.every(r => r.action === 'skip') ? ' checked' : ''}> <span>Skip</span></label></th></tr></thead><tbody>${this._addTagTableRowsHTML(atRows)}</tbody></table></div>
+<div class="nm-status">${this._escape(st.addTagOutput || '')}</div>
+</div>`);
         return `<div class="nm-root">
 <div class="nm-header">
 <div class="nm-header-left">${this._menuHTML()}</div>
@@ -447,33 +544,13 @@ ${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div cl
 </div>
 <div style="height:12px;"></div>
 <div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-trace">Trace tag source</button></div>
-<div class="nm-card nm-review-grid-output" style="margin-top:10px">
-<p class="nm-title">Review Grid</p>
-<p class="nm-text">Build a queue from a source tag, then preview/apply with default target and per-row overrides.</p>
-<div class="nm-field-grid">
-<div class="nm-field">
-<label class="nm-label">#source-tag</label>
-<div class="nm-input-wrap nm-rg-source-host">
-<input class="nm-input nm-rg-source" type="text" value="${this._escape(st.reviewGridSourceTag)}" placeholder="#source-tag" title="Tag index: ArrowDown opens list; arrows navigate; Enter picks when list open, else Find matches; Esc closes list. Clear drops queue." autocomplete="off">
-${st.reviewGridSourceTag ? '<button class="nm-parent-clear" data-action="tr-rg-source-clear" title="Clear source tag">×</button>' : ''}
-<div class="nm-rg-source-suggest nm-rg-suggest" aria-hidden="true"></div>
+<div class="nm-inline" style="margin:12px 0 0;flex-wrap:wrap;gap:8px;align-items:center">
+<span class="nm-muted" style="font-size:12px">Advanced workflow</span>
+<button type="button" class="nm-btn${sub === 'grid' ? '' : ' nm-btn--secondary'}" data-action="tr-submode-grid">Review Grid</button>
+<button type="button" class="nm-btn${sub === 'remove' ? '' : ' nm-btn--secondary'}" data-action="tr-submode-remove">Remove tag</button>
+<button type="button" class="nm-btn${sub === 'add' ? '' : ' nm-btn--secondary'}" data-action="tr-submode-add">Add tag</button>
 </div>
-</div>
-<div class="nm-field">
-<label class="nm-label">#default-target</label>
-<div class="nm-input-wrap">
-<input class="nm-input nm-rg-target" type="text" value="${this._escape(st.reviewGridDefaultTarget)}" placeholder="#default-target" title="Enter re-runs Find matches when a source tag is set." autocomplete="off">
-${st.reviewGridDefaultTarget ? '<button class="nm-parent-clear" data-action="tr-rg-target-clear" title="Clear default target">×</button>' : ''}
-</div>
-</div>
-<div class="nm-field"><label class="nm-label">Filter</label><input class="nm-input nm-rg-filter" type="text" value="${this._escape(st.reviewGridFilter)}" placeholder="title, source, preview..."></div>
-<div class="nm-field"><label class="nm-label">Sort</label><select class="nm-select nm-rg-sort"><option value="title-asc"${st.reviewGridSort === 'title-asc' ? ' selected' : ''}>Title A-Z</option><option value="title-desc"${st.reviewGridSort === 'title-desc' ? ' selected' : ''}>Title Z-A</option><option value="source-asc"${st.reviewGridSort === 'source-asc' ? ' selected' : ''}>Source A-Z</option><option value="source-desc"${st.reviewGridSort === 'source-desc' ? ' selected' : ''}>Source Z-A</option><option value="tag-group"${st.reviewGridSort === 'tag-group' ? ' selected' : ''}>Group by tag</option></select></div>
-</div>
-<div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-rg-build">Find matches</button><button class="nm-btn nm-btn--secondary" data-action="tr-rg-preview">Preview</button><button class="nm-btn" data-action="tr-rg-apply"${st.running ? ' disabled' : ''}>Rename</button></div>
-<div class="nm-status">${this._escape(reviewGridMeta)}</div>
-<div class="nm-table-wrap nm-rg-wrap"><table class="nm-table nm-rg-table"><thead><tr><th>Record title</th><th>First 2 lines</th><th style="width:90px"><label class="nm-inline"><input type="checkbox" data-action="tr-rg-default-all"${gridRows.length && gridRows.every(r => r.action === 'default') ? ' checked' : ''}> <span>${this._escape(defaultHeaderLabel)}</span></label></th><th style="width:80px"><label class="nm-inline"><input type="checkbox" data-action="tr-rg-skip-all"${gridRows.length && gridRows.every(r => r.action === 'skip') ? ' checked' : ''}> <span>Skip</span></label></th><th>Override tag</th></tr></thead><tbody>${this._reviewGridTableRowsHTML(gridRows)}</tbody></table></div>
-<div class="nm-status">${this._escape(st.reviewGridOutput || '')}</div>
-</div>
+${reviewWorkflowCard}
 <div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>
 <div class="nm-card" style="margin-top:10px">
 <div class="nm-adv-head"${hasTrace ? ' data-action="tr-toggle-trace-output"' : ''}>
@@ -1282,6 +1359,125 @@ ${this._sharedTailHTML()}
                     void this._openReviewGridRecordInOtherPanel(guid);
                     break;
                 }
+                case 'tr-submode-grid':
+                    this._tagState.tagReviewSubMode = 'grid';
+                    this._clearRemoveTagQueue();
+                    this._clearAddTagWorkflow();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'tr-submode-remove':
+                    this._tagState.tagReviewSubMode = 'remove';
+                    this._resetReviewGridWorkflow();
+                    this._clearAddTagWorkflow();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'tr-submode-add':
+                    this._tagState.tagReviewSubMode = 'add';
+                    this._resetReviewGridWorkflow();
+                    this._clearRemoveTagQueue();
+                    this._tagState.removeTagTag = '';
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'tr-rt-build':
+                    void (async () => {
+                        await this._removeTagBuild();
+                        if (this._panel) this._render(this._panel);
+                    })();
+                    break;
+                case 'tr-rt-preview':
+                    this._removeTagPreview();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'tr-rt-apply':
+                    void (async () => {
+                        await this._removeTagApply();
+                        if (this._panel) this._render(this._panel);
+                    })();
+                    break;
+                case 'tr-rt-tag-clear':
+                    this._tagState.removeTagTag = '';
+                    this._clearRemoveTagQueue();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'tr-rt-default-all': {
+                    const rows = this._removeTagRowsForDisplay();
+                    for (const row of rows) {
+                        row.action = target.checked ? 'default' : 'skip';
+                    }
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'tr-rt-skip-all': {
+                    const rows = this._removeTagRowsForDisplay();
+                    for (const row of rows) {
+                        row.action = target.checked ? 'skip' : 'default';
+                    }
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'tr-rt-default': {
+                    const row = this._tagState.removeTagRows.find(r => r.id === target.dataset.id);
+                    if (row) { row.action = target.checked ? 'default' : 'skip'; if (this._panel) this._render(this._panel); }
+                    break;
+                }
+                case 'tr-rt-skip': {
+                    const row = this._tagState.removeTagRows.find(r => r.id === target.dataset.id);
+                    if (row) { row.action = target.checked ? 'skip' : 'default'; if (this._panel) this._render(this._panel); }
+                    break;
+                }
+                case 'tr-at-build':
+                    void (async () => {
+                        await this._addTagBuild();
+                        if (this._panel) this._render(this._panel);
+                    })();
+                    break;
+                case 'tr-at-preview':
+                    this._addTagPreview();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'tr-at-apply':
+                    void (async () => {
+                        await this._addTagApply();
+                        if (this._panel) this._render(this._panel);
+                    })();
+                    break;
+                case 'tr-at-tag-clear':
+                    this._tagState.addTagTag = '';
+                    this._clearAddTagQueue();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'tr-at-default-all': {
+                    const rows = this._addTagRowsForDisplay();
+                    for (const row of rows) {
+                        row.action = target.checked ? 'default' : 'none';
+                    }
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'tr-at-skip-all': {
+                    const rows = this._addTagRowsForDisplay();
+                    for (const row of rows) {
+                        row.action = target.checked ? 'skip' : 'none';
+                    }
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'tr-at-default': {
+                    const row = this._tagState.addTagRows.find(r => r.id === target.dataset.id);
+                    if (row) {
+                        row.action = target.checked ? 'default' : 'none';
+                        if (this._panel) this._render(this._panel);
+                    }
+                    break;
+                }
+                case 'tr-at-skip': {
+                    const row = this._tagState.addTagRows.find(r => r.id === target.dataset.id);
+                    if (row) {
+                        row.action = target.checked ? 'skip' : 'none';
+                        if (this._panel) this._render(this._panel);
+                    }
+                    break;
+                }
                 case 'tr-refresh-index':
                     await this._refreshTagIndex();
                     this._toast('Tag index', 'Index refreshed.', 2500);
@@ -1705,6 +1901,70 @@ ${this._sharedTailHTML()}
         if (rgFilter) rgFilter.addEventListener('input', () => { this._tagState.reviewGridFilter = rgFilter.value; if (this._panel) this._render(this._panel); }, { signal });
         const rgSort = el.querySelector('.nm-rg-sort');
         if (rgSort) rgSort.addEventListener('change', () => { this._tagState.reviewGridSort = rgSort.value; if (this._panel) this._render(this._panel); }, { signal });
+        const rtTag = el.querySelector('.nm-rt-tag');
+        const rtTagSuggest = el.querySelector('.nm-rt-tag-suggest');
+        if (rtTag && rtTagSuggest) {
+            const rtSuggest = this._attachTagIndexAutocomplete(rtTag, rtTagSuggest, signal, clean => {
+                this._tagState.removeTagTag = clean;
+                void (async () => {
+                    await this._removeTagBuild();
+                    if (this._panel) this._render(this._panel);
+                })();
+            }, () => this._tagSuggestionsForRemoveTagList());
+            rtTag.addEventListener('input', () => {
+                this._tagState.removeTagTag = rtTag.value;
+                if (!this.cleanTag(rtTag.value)) {
+                    rtSuggest.close();
+                    this._clearRemoveTagQueue();
+                    if (this._panel) this._render(this._panel);
+                }
+            }, { signal });
+            rtTag.addEventListener('keydown', e => {
+                if (e.key !== 'Enter' || e.defaultPrevented) return;
+                if (e.metaKey || e.ctrlKey) return;
+                e.preventDefault();
+                e.stopPropagation();
+                rtSuggest.close();
+                this._tagState.removeTagTag = rtTag.value;
+                if (!this.cleanTag(rtTag.value)) {
+                    this._clearRemoveTagQueue();
+                    if (this._panel) this._render(this._panel);
+                    return;
+                }
+                void (async () => {
+                    await this._removeTagBuild();
+                    if (this._panel) this._render(this._panel);
+                })();
+            }, { signal });
+        }
+        const rtFilter = el.querySelector('.nm-rt-filter');
+        if (rtFilter) rtFilter.addEventListener('input', () => { this._tagState.removeTagFilter = rtFilter.value; if (this._panel) this._render(this._panel); }, { signal });
+        const rtSort = el.querySelector('.nm-rt-sort');
+        if (rtSort) rtSort.addEventListener('change', () => { this._tagState.removeTagSort = rtSort.value; if (this._panel) this._render(this._panel); }, { signal });
+        const atTag = el.querySelector('.nm-at-tag');
+        if (atTag) {
+            atTag.addEventListener('input', () => {
+                this._tagState.addTagTag = atTag.value;
+                if (this._panel) this._render(this._panel);
+            }, { signal });
+            atTag.addEventListener('keydown', e => {
+                if (e.key !== 'Enter' || e.defaultPrevented) return;
+                if (e.metaKey || e.ctrlKey) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this._tagState.addTagTag = atTag.value;
+                void (async () => {
+                    await this._addTagBuild();
+                    if (this._panel) this._render(this._panel);
+                })();
+            }, { signal });
+        }
+        const atRecFilter = el.querySelector('.nm-at-record-filter');
+        if (atRecFilter) atRecFilter.addEventListener('input', () => { this._tagState.addTagRecordFilter = atRecFilter.value; if (this._panel) this._render(this._panel); }, { signal });
+        const atTableFilter = el.querySelector('.nm-at-table-filter');
+        if (atTableFilter) atTableFilter.addEventListener('input', () => { this._tagState.addTagTableFilter = atTableFilter.value; if (this._panel) this._render(this._panel); }, { signal });
+        const atSort = el.querySelector('.nm-at-sort');
+        if (atSort) atSort.addEventListener('change', () => { this._tagState.addTagSort = atSort.value; if (this._panel) this._render(this._panel); }, { signal });
         const taTh = el.querySelector('.nm-ta-threshold-range');
         if (taTh) taTh.addEventListener('input', () => { this._tagState.tagAnalyzerThreshold = Number(taTh.value) || 1; if (this._panel) this._render(this._panel); }, { signal });
         const taSim = el.querySelector('.nm-ta-sim-range');
@@ -2118,7 +2378,7 @@ ${this._sharedTailHTML()}
             const nextSegments = [];
             for (const seg of segments) {
                 const segText = this.segmentTextAsString(seg);
-                if (seg?.type === 'hashtag' && this._isTagMatch(segText, oldTag, caseSensitive)) {
+                if (seg?.type === THYMER_TYPE_HASHTAG && this._isTagMatch(segText, oldTag, caseSensitive)) {
                     itemChanged = true;
                     segmentsChanged += 1;
                     nextSegments.push({ ...seg, text: `#${newTag}` });
@@ -2131,7 +2391,7 @@ ${this._sharedTailHTML()}
                     } else {
                         nextSegments.push(seg);
                     }
-                } else if (seg?.type === 'hashtag' && caseSensitive && this._isTagMatch(segText, oldTag, false)) {
+                } else if (seg?.type === THYMER_TYPE_HASHTAG && caseSensitive && this._isTagMatch(segText, oldTag, false)) {
                     caseMismatchMentions += 1;
                     nextSegments.push(seg);
                 } else {
@@ -2330,6 +2590,16 @@ ${this._sharedTailHTML()}
                     .map(([tag, guidSet]) => ({ tag: String(tag ?? '').trim(), count: guidSet.size }))
                     .filter(e => e.tag);
                 st.tagIndex = this._sortTagIndexEntries(built);
+                const tagsWithoutChoiceSources = new Set();
+                await this.forEachScannableRecord(scanOpts, async (record) => {
+                    const tset = await this.collectTagsFromRecord(record, { ...scanOpts, excludeChoiceValues: true });
+                    for (const t of tset) tagsWithoutChoiceSources.add(t);
+                }, scope.collections);
+                const choiceOnly = new Set();
+                for (const tag of tagToRecordGuids.keys()) {
+                    if (!tagsWithoutChoiceSources.has(tag)) choiceOnly.add(tag);
+                }
+                st.tagChoiceOnlyTags = choiceOnly;
                 const choiceNote = scanOpts.excludeChoiceValues ? ' (choice/enum excluded)' : '';
                 const excludedNote = scope.excludedCount ? ` Excluded collections: ${scope.excludedCount}.` : '';
                 st.indexMeta = `Loaded ${st.tagIndex.length} tags from ${stats.recordCount} records in ${scope.collections.length} user collections.${choiceNote}${excludedNote}${scope.warning ? ` ${scope.warning}` : ''} Tags A–Z (case-insensitive).`;
@@ -2381,7 +2651,7 @@ ${this._sharedTailHTML()}
                 for (const seg of segments) {
                     const segText = this.segmentTextAsString(seg);
                     if (!segText) continue;
-                    if (seg?.type === 'hashtag' && this.isSourceTagPatternMatch(segText, oldTag, false)) {
+                    if (seg?.type === THYMER_TYPE_HASHTAG && this.isSourceTagPatternMatch(segText, oldTag, false)) {
                         addHit({ recordGuid, recordName, source: 'body-hashtag-segment', propertyName: null, value: segText });
                     }
                     if (seg?.type === 'text') {
@@ -2492,9 +2762,12 @@ ${this._sharedTailHTML()}
         const tagGroup = !!opts.tagGroup;
         const rowTag = this.cleanTag(row.sourceTag || '');
         const sub = (tagGroup && rowTag) ? `<div class="nm-muted" style="font-size:11px;opacity:0.8;">#${this._escape(rowTag)}</div>` : '';
+        const mergeHint = row.mergeCount > 1
+            ? `<div class="nm-muted" style="font-size:11px;margin-top:2px">${this._escape(String(row.mergeCount))} tag location(s) in this record</div>`
+            : '';
         const titleOpen = tagGroup && row.recordGuid
-            ? `<div class="nm-rg-title-open" tabindex="0" role="link" data-action="tr-rg-open-record" data-guid="${this._escape(row.recordGuid)}" title="Open this record in another panel"><div>${this._escape(row.recordName || '(untitled)')}</div>${sub}</div>`
-            : `<div>${this._escape(row.recordName || '(untitled)')}</div>${sub}`;
+            ? `<div class="nm-rg-title-open" tabindex="0" role="link" data-action="tr-rg-open-record" data-guid="${this._escape(row.recordGuid)}" title="Open this record in another panel"><div>${this._escape(row.recordName || '(untitled)')}</div>${sub}${mergeHint}</div>`
+            : `<div>${this._escape(row.recordName || '(untitled)')}</div>${sub}${mergeHint}`;
         const ovRaw = row.overrideTarget || '';
         const hasOverride = !!this.cleanTag(ovRaw);
         const clearOverride = hasOverride ? `<button type="button" class="nm-parent-clear" data-action="tr-rg-override-clear" data-id="${this._escape(row.id)}" title="Clear override tag">×</button>` : '';
@@ -2506,6 +2779,113 @@ ${this._sharedTailHTML()}
         st.reviewGridRows = [];
         st.reviewGridCollapsedSources = new Set();
         st.reviewGridMeta = 'No queue built.';
+    }
+
+    /** Clears Review Grid inputs, output, and queue (used when switching to Remove tag and after Remove tag apply). */
+    _resetReviewGridWorkflow() {
+        const st = this._tagState;
+        st.reviewGridSourceTag = '';
+        st.reviewGridSourceSearchOpen = false;
+        st.reviewGridDefaultTarget = '';
+        st.reviewGridFilter = '';
+        st.reviewGridSort = 'title-asc';
+        st.reviewGridOutput = '';
+        this._clearReviewGridQueue();
+    }
+
+    /**
+     * One queue row per record. Rename still touches all occurrences in the record;
+     * this only simplifies the table (per-occurrence skip/override is not meaningful for a whole-record rename).
+     */
+    _collapseReviewGridRowsByRecord(rows, normalizedSource) {
+        if (!Array.isArray(rows) || rows.length <= 1) return rows;
+        const order = [];
+        const byKey = new Map();
+        for (const row of rows) {
+            const g = row.recordGuid || '';
+            const key = g || `noid:${row.id}`;
+            if (!byKey.has(key)) {
+                byKey.set(key, []);
+                order.push(key);
+            }
+            byKey.get(key).push(row);
+        }
+        const out = [];
+        let rowId = 0;
+        for (const key of order) {
+            const group = byKey.get(key);
+            if (group.length === 1) {
+                out.push(group[0]);
+                continue;
+            }
+            const uniqSources = [...new Set(group.map(r => String(r.source || '')))];
+            const sourceSummary = uniqSources.length === 1
+                ? uniqSources[0]
+                : `${group.length} hits (${uniqSources.slice(0, 2).join(', ')}${uniqSources.length > 2 ? '…' : ''})`;
+            const firstOv = group.map(r => this.cleanTag(r.overrideTarget || '')).find(t => t);
+            out.push({
+                id: `rg-${rowId++}`,
+                action: 'default',
+                recordGuid: group[0].recordGuid,
+                recordName: group[0].recordName,
+                preview: group[0].preview,
+                source: sourceSummary,
+                sourceTag: normalizedSource,
+                overrideTarget: firstOv ? `#${firstOv}` : '',
+                mergeCount: group.length,
+            });
+        }
+        return out;
+    }
+
+    /** One queue row per record; `subHits` lists each body/property hit for apply. */
+    _collapseRemoveTagRowsByRecord(rows) {
+        if (!Array.isArray(rows) || !rows.length) return rows;
+        const order = [];
+        const byGuid = new Map();
+        for (const row of rows) {
+            const g = row.recordGuid || '';
+            const key = g || `noid:${row.id}`;
+            if (!byGuid.has(key)) {
+                byGuid.set(key, []);
+                order.push(key);
+            }
+            byGuid.get(key).push(row);
+        }
+        const out = [];
+        let rowId = 0;
+        for (const key of order) {
+            const group = byGuid.get(key);
+            if (group.length === 1) {
+                out.push(group[0]);
+                continue;
+            }
+            const subHits = group.map(r => ({
+                hitKind: r.hitKind,
+                lineItemIndex: r.lineItemIndex,
+                segmentIndex: r.segmentIndex,
+                textOccurrenceIndex: r.textOccurrenceIndex,
+                propertyName: r.propertyName,
+                propertyValueIndex: r.propertyValueIndex,
+            }));
+            out.push({
+                id: `rt-${rowId++}`,
+                action: 'default',
+                recordGuid: group[0].recordGuid,
+                recordName: group[0].recordName,
+                preview: group[0].preview,
+                source: `${group.length} location(s)`,
+                hitKind: 'merged',
+                mergeCount: group.length,
+                subHits,
+                lineItemIndex: -1,
+                segmentIndex: -1,
+                textOccurrenceIndex: null,
+                propertyName: '',
+                propertyValueIndex: null,
+            });
+        }
+        return out;
     }
 
     _reviewGridMetaSummary(gridRows) {
@@ -2586,11 +2966,11 @@ ${this._sharedTailHTML()}
         };
     }
 
-    _attachTagIndexAutocomplete(input, suggestEl, signal, onSelectTag) {
+    _attachTagIndexAutocomplete(input, suggestEl, signal, onSelectTag, getItemList) {
         if (!input || !suggestEl) return { close: () => {} };
         let items = [];
         let active = -1;
-        const list = () => (Array.isArray(this._tagState.tagIndex) ? this._tagState.tagIndex : []);
+        const list = () => (typeof getItemList === 'function' ? getItemList() : (Array.isArray(this._tagState.tagIndex) ? this._tagState.tagIndex : []));
         const close = () => {
             items = [];
             active = -1;
@@ -2612,7 +2992,7 @@ ${this._sharedTailHTML()}
         };
         const render = () => {
             const q = this.cleanTag(input.value || '').toLowerCase();
-            const fullList = list();
+            const fullList = Array.isArray(list()) ? list() : [];
             const source = !q
                 ? fullList.slice(0, 30)
                 : fullList
@@ -2734,7 +3114,7 @@ ${this._sharedTailHTML()}
                     const seg = segs[i];
                     const segText = this.segmentTextAsString(seg);
                     if (!segText) continue;
-                    if (seg?.type === 'hashtag' && this.isSourceTagPatternMatch(segText, normalizedSource, false)) {
+                    if (seg?.type === THYMER_TYPE_HASHTAG && this.isSourceTagPatternMatch(segText, normalizedSource, false)) {
                         const rowSourceTag = this.cleanTag(segText);
                         rows.push({ id: `rg-${rowId++}`, action: 'default', recordGuid, recordName, source: 'body-hashtag-segment', preview, sourceTag: rowSourceTag, overrideTarget: '' });
                     } else if (seg?.type === 'text') {
@@ -2774,9 +3154,9 @@ ${this._sharedTailHTML()}
                 }
             }
         });
-        st.reviewGridRows = rows;
+        st.reviewGridRows = this._collapseReviewGridRowsByRecord(rows, normalizedSource);
         const gridRows = this._reviewGridRowsForDisplay();
-        st.reviewGridMeta = rows.length ? this._reviewGridMetaSummary(gridRows) : 'No queue built.';
+        st.reviewGridMeta = st.reviewGridRows.length ? this._reviewGridMetaSummary(gridRows) : 'No queue built.';
         st.reviewGridOutput = '';
         this._setStatus(st.reviewGridMeta, { title: 'Review Grid' });
     }
@@ -2876,6 +3256,962 @@ ${this._sharedTailHTML()}
         }
     }
 
+    _clearRemoveTagQueue() {
+        const st = this._tagState;
+        st.removeTagRows = [];
+        st.removeTagMeta = 'No queue built.';
+    }
+
+    _clearAddTagQueue() {
+        const st = this._tagState;
+        st.addTagRows = [];
+        st.addTagMeta = 'No queue built.';
+    }
+
+    _clearAddTagWorkflow() {
+        const st = this._tagState;
+        st.addTagTag = '';
+        st.addTagRecordFilter = '';
+        st.addTagTableFilter = '';
+        st.addTagSort = 'title-asc';
+        this._clearAddTagQueue();
+        st.addTagOutput = '';
+    }
+
+    /**
+     * Collect type hints from PluginProperty (SDK: getType(), type, propertyType, fieldType).
+     * Any hint may be `"hashtag"` (PROP_TYPE_HASHTAG); do not let a non-hashtag getType() hide a real hashtag type on other fields.
+     */
+    _collectThymerPropertyTypeHints(prop) {
+        if (!prop) return [];
+        const hints = [];
+        try {
+            if (typeof prop.getType === 'function') {
+                const g = String(prop.getType()).trim().toLowerCase();
+                if (g) hints.push(g);
+            }
+        } catch (_) {}
+        for (const k of [prop?.type, prop?.propertyType, prop?.fieldType, prop?.kind]) {
+            const s = String(k ?? '').trim().toLowerCase();
+            if (s) hints.push(s);
+        }
+        return hints;
+    }
+
+    _isPropertyTypeHashtag(prop) {
+        const hints = this._collectThymerPropertyTypeHints(prop);
+        if (hints.includes(THYMER_TYPE_HASHTAG)) return true;
+        return hints.some(h => /\bhashtag\b/.test(h));
+    }
+
+    /** SDK PluginProperty: can store tag strings via addValue and/or set + texts/values. */
+    _propertySupportsTagValues(prop) {
+        if (!prop) return false;
+        if (typeof prop.addValue === 'function') return true;
+        if (typeof prop.set === 'function' && (typeof prop.texts === 'function' || typeof prop.values === 'function')) return true;
+        return false;
+    }
+
+    _isTagsColumnName(prop) {
+        const n = String(prop?.name ?? '').trim().toLowerCase();
+        return n === 'tags' || n === 'tag';
+    }
+
+    /**
+     * Queue/apply tag writes here: explicit hashtag type, or canonical Tags/Tag column (not a choice enum), with a writable API.
+     */
+    _canQueueAddTagToProperty(prop) {
+        if (!prop || !this._propertySupportsTagValues(prop)) return false;
+        if (this._hasArrayChoicesProperty(prop)) return false;
+        return this._isPropertyTypeHashtag(prop) || this._isTagsColumnName(prop);
+    }
+
+    /** String values from a property for tag read/write (SDK: texts() preferred, values() fallback). */
+    _getPropertyStringValues(prop) {
+        if (!prop) return [];
+        if (typeof prop.texts === 'function') {
+            try {
+                return [...(prop.texts() || [])].map(x => String(x ?? ''));
+            } catch (_) {}
+        }
+        if (typeof prop.values === 'function') {
+            try {
+                return [...(prop.values() || [])].map(x => String(x ?? ''));
+            } catch (_) {}
+        }
+        return [];
+    }
+
+    /** Prefer `record.prop(name)` (Thymer SDK), then match `getAllProperties()` by name. */
+    _resolvePluginProperty(record, name) {
+        const n = String(name || '').trim();
+        if (!record || !n) return null;
+        if (typeof record.prop === 'function') {
+            try {
+                const p = record.prop(n);
+                if (p) return p;
+            } catch (_) {}
+        }
+        try {
+            const props = record.getAllProperties?.() || [];
+            return props.find(p => String(p?.name ?? '') === n) || null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    _findFirstHashtagProperty(record) {
+        try {
+            const props = record.getAllProperties?.() || [];
+            return props.find(p => this._isPropertyTypeHashtag(p)) || null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /**
+     * Prefer **Tags** / **Tag** via `record.prop`, then any queueable column (hashtag type or Tags name), sorted by name then multi-value.
+     */
+    _findBestHashtagPropertyForAdd(record) {
+        try {
+            if (typeof record.prop === 'function') {
+                for (const nm of ['Tags', 'Tag']) {
+                    try {
+                        const p = record.prop(nm);
+                        if (p && this._canQueueAddTagToProperty(p)) return p;
+                    } catch (_) {}
+                }
+            }
+            const props = (record.getAllProperties?.() || []).filter(p => this._canQueueAddTagToProperty(p));
+            if (!props.length) return null;
+            const nameScore = (p) => {
+                const n = String(p?.name ?? '').trim().toLowerCase();
+                if (n === 'tags' || n === 'tag') return 0;
+                if (n.includes('tag')) return 1;
+                return 2;
+            };
+            const isMulti = (p) => {
+                try {
+                    return typeof p.isMultiValue === 'function' && p.isMultiValue();
+                } catch (_) {
+                    return false;
+                }
+            };
+            props.sort((a, b) => {
+                const d = nameScore(a) - nameScore(b);
+                if (d !== 0) return d;
+                if (isMulti(a) !== isMulti(b)) return isMulti(a) ? -1 : 1;
+                return String(a?.name ?? '').localeCompare(String(b?.name ?? ''));
+            });
+            return props[0];
+        } catch (_) {
+            return null;
+        }
+    }
+
+    _addTagValueWithHash(cleanTag) {
+        const c = this.cleanTag(cleanTag);
+        return c ? `#${c}` : '';
+    }
+
+    /** New body line: `#tag ` including one trailing space. */
+    _addTagBodyLineText(cleanTag) {
+        const v = this._addTagValueWithHash(cleanTag);
+        return v ? `${v} ` : '';
+    }
+
+    /**
+     * Value to pass to `addValue` / `set` for a property. Hashtag-typed fields store the **token**
+     * (no `#`); the app adds `#` for display — passing `#tag` would show as `##tag`.
+     * Text-style Tags columns follow existing entries: `#`-prefixed or plain.
+     */
+    _addTagValueForPropertyPersist(tagClean, prop) {
+        const c = this.cleanTag(tagClean);
+        if (!c) return '';
+        if (this._isPropertyTypeHashtag(prop)) return c;
+        const cur = this._getPropertyStringValues(prop);
+        const sample = cur.find(s => String(s ?? '').trim());
+        if (!sample) return `#${c}`;
+        return String(sample).trim().startsWith('#') ? `#${c}` : c;
+    }
+
+    async _recordHaystackForAddTagFilter(record) {
+        const name = String(record.getName?.() || '').trim();
+        const lineItems = await record.getLineItems(true);
+        const previewLines = [];
+        for (const item of lineItems || []) {
+            const segs = item?.segments;
+            if (!Array.isArray(segs)) continue;
+            const txt = segs.map(s => this.segmentTextAsString(s)).join('').trim();
+            if (!txt) continue;
+            previewLines.push(txt);
+            if (previewLines.length >= 2) break;
+        }
+        const preview = previewLines.join('\n').trim();
+        return `${name}\n${preview}`.trim().toLowerCase();
+    }
+
+    async _addTagRecordMatchesRecordFilter(record, filterRaw) {
+        const f = String(filterRaw || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        if (!f) return true;
+        const hay = await this._recordHaystackForAddTagFilter(record);
+        return hay.includes(f);
+    }
+
+    async _recordAlreadyHasTag(record, tagNorm, caseSensitive) {
+        const want = this.matchKey(tagNorm, caseSensitive);
+        if (!want) return false;
+        const lineItems = await record.getLineItems(true);
+        for (const item of lineItems || []) {
+            const segs = item?.segments;
+            if (!Array.isArray(segs)) continue;
+            for (const seg of segs) {
+                const segText = this.segmentTextAsString(seg);
+                if (seg?.type === THYMER_TYPE_HASHTAG && this.matchKey(this.cleanTag(segText), caseSensitive) === want) return true;
+                if (seg?.type === 'text' && segText) {
+                    for (const tok of this.extractHashtagTokensFromText(segText)) {
+                        if (this.matchKey(tok, caseSensitive) === want) return true;
+                    }
+                }
+            }
+        }
+        try {
+            const props = record.getAllProperties?.() || [];
+            for (const hp of props) {
+                if (!this._canQueueAddTagToProperty(hp)) continue;
+                for (const value of this._getPropertyStringValues(hp)) {
+                    if (this._isTagMatch(String(value ?? ''), tagNorm, caseSensitive)) return true;
+                }
+            }
+        } catch (_) {}
+        return false;
+    }
+
+    async _getLastTopLevelLineItemForAddTag(record) {
+        const lineItems = await record.getLineItems(true);
+        if (!Array.isArray(lineItems) || !lineItems.length) return null;
+        return lineItems[lineItems.length - 1];
+    }
+
+    /**
+     * @returns {Promise<boolean>} true if a write was persisted
+     */
+    async _applyAddTagToRecord(record, row, tagClean, caseSensitive) {
+        if (await this._recordAlreadyHasTag(record, tagClean, caseSensitive)) return false;
+        if (row.placement === 'property' && row.propertyName) {
+            const prop = this._resolvePluginProperty(record, row.propertyName);
+            if (!prop || !this._canQueueAddTagToProperty(prop)) return false;
+            const val = this._addTagValueForPropertyPersist(tagClean, prop);
+            if (!val) return false;
+            let multi = false;
+            try {
+                multi = typeof prop.isMultiValue === 'function' && prop.isMultiValue();
+            } catch (_) {}
+            // SDK: addValue() appends on multi-value; on single-value it behaves like set() (replaces), so merge via texts+set when not multi.
+            if (multi && typeof prop.addValue === 'function') {
+                try {
+                    prop.addValue(val);
+                    return true;
+                } catch (_) {
+                    /* fall through to texts + set */
+                }
+            }
+            if (typeof prop.set === 'function') {
+                try {
+                    const cur = [...this._getPropertyStringValues(prop)];
+                    if (cur.some(existing => this._isTagMatch(existing, tagClean, caseSensitive))) return false;
+                    cur.push(val);
+                    prop.set(cur);
+                    return true;
+                } catch (_) {
+                    return false;
+                }
+            }
+            if (typeof prop.addValue === 'function') {
+                try {
+                    prop.addValue(val);
+                    return true;
+                } catch (_) {
+                    return false;
+                }
+            }
+            return false;
+        }
+        if (!this.cleanTag(tagClean)) return false;
+        try {
+            const afterItem = await this._getLastTopLevelLineItemForAddTag(record);
+            const textSeg = this._addTagBodyLineText(tagClean);
+            if (!textSeg) return false;
+            await record.createLineItem(null, afterItem, 'text', [{ type: 'text', text: textSeg }], null);
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    _addTagRowsForDisplay() {
+        const st = this._tagState;
+        const filter = (st.addTagTableFilter || '').toLowerCase().trim();
+        let rows = [...(st.addTagRows || [])];
+        if (filter) {
+            rows = rows.filter(r => `${r.recordName || ''} ${r.source || ''} ${r.preview || ''}`.toLowerCase().includes(filter));
+        }
+        const cmp = {
+            'title-asc': (a, b) => (a.recordName || '').localeCompare(b.recordName || ''),
+            'title-desc': (a, b) => (b.recordName || '').localeCompare(a.recordName || ''),
+            'source-asc': (a, b) => (a.source || '').localeCompare(b.source || ''),
+            'source-desc': (a, b) => (b.source || '').localeCompare(a.source || ''),
+        }[st.addTagSort || 'title-asc'];
+        if (cmp) rows.sort(cmp);
+        return rows;
+    }
+
+    _addTagMetaSummary(gridRows) {
+        const st = this._tagState;
+        const rows = st.addTagRows || [];
+        const total = rows.length;
+        if (!total) return st.addTagMeta || 'No queue built.';
+        const viewLen = Array.isArray(gridRows) ? gridRows.length : 0;
+        const adds = rows.filter(r => r.action === 'default').length;
+        const skips = rows.filter(r => r.action === 'skip').length;
+        const off = rows.filter(r => r.action !== 'default' && r.action !== 'skip').length;
+        return `Rows: ${viewLen}/${total} | add: ${adds} | skip: ${skips} | off: ${off}`;
+    }
+
+    _addTagTableRowsHTML(rows) {
+        if (!rows.length) return '<tr><td colspan="4">No queue rows.</td></tr>';
+        return rows.map(r => this._addTagRowHTML(r)).join('');
+    }
+
+    _addTagRowHTML(row) {
+        const mergeHint = row.mergeCount > 1
+            ? `<div class="nm-muted" style="font-size:11px;margin-top:2px">${this._escape(String(row.mergeCount))} location(s)</div>`
+            : '';
+        const titleOpen = row.recordGuid
+            ? `<div class="nm-rg-title-open" tabindex="0" role="link" data-action="tr-rg-open-record" data-guid="${this._escape(row.recordGuid)}" title="Open this record in another panel"><div>${this._escape(row.recordName || '(untitled)')}</div>${mergeHint}</div>`
+            : `<div>${this._escape(row.recordName || '(untitled)')}</div>${mergeHint}`;
+        return `<tr><td>${titleOpen}</td><td>${this._escape(row.preview || '')}</td><td><input type="checkbox" data-action="tr-at-default" data-id="${this._escape(row.id)}"${row.action === 'default' ? ' checked' : ''}></td><td><input type="checkbox" data-action="tr-at-skip" data-id="${this._escape(row.id)}"${row.action === 'skip' ? ' checked' : ''}></td></tr>`;
+    }
+
+    async _addTagBuild() {
+        const st = this._tagState;
+        const tagNorm = this.cleanTag(st.addTagTag || '');
+        if (!tagNorm) { this._setStatus('Add tag: enter a tag to add.'); return; }
+        st.addTagTag = tagNorm;
+        const opts = this._tagScanOpts();
+        const filterRaw = st.addTagRecordFilter || '';
+        const caseSens = !!st.caseSensitive;
+        const rows = [];
+        let rowId = 0;
+        await this.forEachScannableRecord(opts, async (record) => {
+            if (!(await this._addTagRecordMatchesRecordFilter(record, filterRaw))) return;
+            if (await this._recordAlreadyHasTag(record, tagNorm, caseSens)) return;
+            const recordGuid = record?.guid || '';
+            const recordName = record.getName?.() || '(untitled)';
+            const lineItems = await record.getLineItems(true);
+            const previewLines = [];
+            for (const item of lineItems || []) {
+                const segs = item?.segments;
+                if (!Array.isArray(segs)) continue;
+                const txt = segs.map(s => this.segmentTextAsString(s)).join('').trim();
+                if (!txt) continue;
+                previewLines.push(txt);
+                if (previewLines.length >= 2) break;
+            }
+            const preview = previewLines.join('\n').slice(0, 256);
+            const hp = this._findBestHashtagPropertyForAdd(record);
+            let placement = 'body';
+            let source = 'body (new line)';
+            let propertyName = '';
+            if (hp) {
+                placement = 'property';
+                propertyName = String(hp.name ?? '');
+                source = `hashtag property (${propertyName})`;
+            }
+            rows.push({
+                id: `at-${rowId++}`,
+                action: 'none',
+                recordGuid,
+                recordName,
+                preview,
+                source,
+                placement,
+                propertyName,
+            });
+        });
+        st.addTagRows = this._collapseAddTagRowsByRecord(rows);
+        const gridRows = this._addTagRowsForDisplay();
+        st.addTagMeta = st.addTagRows.length ? this._addTagMetaSummary(gridRows) : 'No queue built.';
+        st.addTagOutput = '';
+        this._setStatus(st.addTagMeta, { title: 'Add tag' });
+    }
+
+    _collapseAddTagRowsByRecord(rows) {
+        if (!Array.isArray(rows) || !rows.length) return rows;
+        const order = [];
+        const byKey = new Map();
+        for (const row of rows) {
+            const g = row.recordGuid || '';
+            const key = g || `noid:${row.id}`;
+            if (!byKey.has(key)) {
+                byKey.set(key, []);
+                order.push(key);
+            }
+            byKey.get(key).push(row);
+        }
+        const out = [];
+        let id = 0;
+        for (const key of order) {
+            const group = byKey.get(key);
+            if (group.length === 1) {
+                out.push(group[0]);
+                continue;
+            }
+            out.push({
+                id: `at-${id++}`,
+                action: 'none',
+                recordGuid: group[0].recordGuid,
+                recordName: group[0].recordName,
+                preview: group[0].preview,
+                source: group[0].source,
+                placement: group[0].placement,
+                propertyName: group[0].propertyName,
+                mergeCount: group.length,
+            });
+        }
+        return out;
+    }
+
+    _addTagPreview() {
+        const st = this._tagState;
+        const rows = st.addTagRows || [];
+        if (!rows.length) {
+            st.addTagOutput = 'Add tag preview: build a queue first (Find matches).';
+            this._logRow('add-tag', 'preview', { recordGuid: '', recordName: '' }, st.addTagOutput);
+            this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+            return;
+        }
+        const toAdd = rows.filter(r => r.action === 'default').length;
+        if (!toAdd) {
+            st.addTagOutput = 'Add tag preview: no rows marked for Add. Check Add on one or more rows, or use the Add column header to select all visible rows, then try Preview again.';
+            this._logRow('add-tag', 'preview', { recordGuid: '', recordName: '' }, st.addTagOutput);
+            this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+            return;
+        }
+        const skipped = rows.filter(r => r.action === 'skip').length;
+        const off = rows.filter(r => r.action !== 'default' && r.action !== 'skip').length;
+        st.addTagOutput = [
+            'Add tag — preview (no writes)',
+            `Tag: #${this.cleanTag(st.addTagTag || '')}`,
+            `Queue rows: ${rows.length}`,
+            `Marked add: ${toAdd}`,
+            `Marked skip: ${skipped}`,
+            `Neither (off): ${off}`,
+        ].join('\n');
+        this._logRow('add-tag', 'preview', { recordGuid: '', recordName: '' }, st.addTagOutput);
+        this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+    }
+
+    async _addTagApply() {
+        const st = this._tagState;
+        const tag = this.cleanTag(st.addTagTag || '');
+        const rows = Array.isArray(st.addTagRows) ? st.addTagRows : [];
+        const rowsToApply = rows.filter(r => r.action === 'default');
+        if (!tag) {
+            st.addTagOutput = 'Add tag apply: no tag set.';
+            this._logRow('add-tag', 'summary', { recordGuid: '', recordName: '' }, st.addTagOutput);
+            this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+            if (this._panel) this._render(this._panel);
+            return;
+        }
+        if (!rowsToApply.length) {
+            st.addTagOutput = rows.length
+                ? 'Add tag apply: no rows marked for Add. Check Add on one or more rows, or use the Add column header to select all visible rows, then try Apply again.'
+                : 'Add tag apply: build a queue first (Find matches).';
+            this._logRow('add-tag', 'summary', { recordGuid: '', recordName: '' }, st.addTagOutput);
+            this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+            if (this._panel) this._render(this._panel);
+            return;
+        }
+        st.running = true;
+        if (this._panel) this._render(this._panel);
+        const byGuid = new Map();
+        for (const row of rowsToApply) {
+            const g = row.recordGuid || '';
+            if (!g) continue;
+            byGuid.set(g, row);
+        }
+        const opts = this._tagScanOpts();
+        let recordsWritten = 0;
+        let failed = 0;
+        let applyAttempts = 0;
+        let noWrite = 0;
+        const writtenLines = [];
+        try {
+            await this.forEachScannableRecord(opts, async (record) => {
+                const guid = record?.guid || '';
+                if (!byGuid.has(guid)) return;
+                const row = byGuid.get(guid);
+                const recordNameLive = record.getName?.() || row.recordName || '(untitled)';
+                const placement = row.source || (row.placement === 'property' && row.propertyName
+                    ? `hashtag property (${row.propertyName})`
+                    : String(row.placement || 'body'));
+                applyAttempts += 1;
+                try {
+                    const written = await this._applyAddTagToRecord(record, row, tag, st.caseSensitive);
+                    if (written) {
+                        recordsWritten += 1;
+                        const line = `• ${recordNameLive} — ${placement} [${guid}]`;
+                        writtenLines.push(line);
+                        this._logRow('add-tag', 'applied', {
+                            recordGuid: guid,
+                            recordName: recordNameLive,
+                        }, `Added #${tag} — ${placement}`);
+                    } else {
+                        noWrite += 1;
+                    }
+                } catch (e) {
+                    failed += 1;
+                    this._logRow('add-tag', 'failed', {
+                        recordGuid: guid,
+                        recordName: recordNameLive,
+                    }, String(e?.message || e));
+                }
+            });
+            const runAt = new Date().toLocaleString();
+            const maxList = 120;
+            const listBody = writtenLines.length
+                ? [
+                    '',
+                    `Updated records (${writtenLines.length}):`,
+                    ...writtenLines.slice(0, maxList),
+                    writtenLines.length > maxList ? `… and ${writtenLines.length - maxList} more (each write is also a row in Review log).` : '',
+                ].filter(Boolean)
+                : [];
+            const addTagCompletion = [
+                'Add tag — apply complete',
+                `Run timestamp: ${runAt}`,
+                `Tag added: #${tag}`,
+                `Records marked Add (unique): ${byGuid.size}`,
+                `Apply attempts (records reached): ${applyAttempts}`,
+                `Records modified (writes applied): ${recordsWritten}`,
+                `No write at apply (e.g. tag already present, placement unavailable): ${noWrite}`,
+                `Errors: ${failed}`,
+                ...listBody,
+            ].join('\n');
+            this._clearAddTagWorkflow();
+            st.addTagOutput = addTagCompletion;
+            this._clearRemoveTagQueue();
+            st.removeTagTag = '';
+            this._resetReviewGridWorkflow();
+            await this._refreshTagIndex({ quiet: true });
+            this._logRow('add-tag', 'summary', { recordGuid: '', recordName: '' }, st.addTagOutput);
+            this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+        } finally {
+            st.running = false;
+        }
+    }
+
+    _removeTagRowsForDisplay() {
+        const st = this._tagState;
+        const filter = (st.removeTagFilter || '').toLowerCase().trim();
+        let rows = [...(st.removeTagRows || [])];
+        if (filter) {
+            rows = rows.filter(r => `${r.recordName || ''} ${r.source || ''} ${r.preview || ''}`.toLowerCase().includes(filter));
+        }
+        const cmp = {
+            'title-asc': (a, b) => (a.recordName || '').localeCompare(b.recordName || ''),
+            'title-desc': (a, b) => (b.recordName || '').localeCompare(a.recordName || ''),
+            'source-asc': (a, b) => (a.source || '').localeCompare(b.source || ''),
+            'source-desc': (a, b) => (b.source || '').localeCompare(a.source || ''),
+        }[st.removeTagSort || 'title-asc'];
+        if (cmp) rows.sort(cmp);
+        return rows;
+    }
+
+    _removeTagMetaSummary(gridRows) {
+        const st = this._tagState;
+        const rows = st.removeTagRows || [];
+        const total = rows.length;
+        if (!total) return st.removeTagMeta || 'No queue built.';
+        const viewLen = Array.isArray(gridRows) ? gridRows.length : 0;
+        const removes = rows.filter(r => r.action === 'default').length;
+        const skips = rows.filter(r => r.action === 'skip').length;
+        return `Rows: ${viewLen}/${total} | remove: ${removes} | skip: ${skips}`;
+    }
+
+    _removeTagTableRowsHTML(rows) {
+        if (!rows.length) return '<tr><td colspan="4">No queue rows.</td></tr>';
+        return rows.map(r => this._removeTagRowHTML(r)).join('');
+    }
+
+    _removeTagRowHTML(row) {
+        const mergeHint = row.mergeCount > 1
+            ? `<div class="nm-muted" style="font-size:11px;margin-top:2px">${this._escape(String(row.mergeCount))} location(s)</div>`
+            : '';
+        const titleOpen = row.recordGuid
+            ? `<div class="nm-rg-title-open" tabindex="0" role="link" data-action="tr-rg-open-record" data-guid="${this._escape(row.recordGuid)}" title="Open this record in another panel"><div>${this._escape(row.recordName || '(untitled)')}</div>${mergeHint}</div>`
+            : `<div>${this._escape(row.recordName || '(untitled)')}</div>${mergeHint}`;
+        return `<tr><td>${titleOpen}</td><td>${this._escape(row.preview || '')}</td><td><input type="checkbox" data-action="tr-rt-default" data-id="${this._escape(row.id)}"${row.action === 'default' ? ' checked' : ''}></td><td><input type="checkbox" data-action="tr-rt-skip" data-id="${this._escape(row.id)}"${row.action === 'skip' ? ' checked' : ''}></td></tr>`;
+    }
+
+    async _removeTagBuild() {
+        const st = this._tagState;
+        const normalizedTag = this.cleanTag(st.removeTagTag || st.oldTag);
+        if (!normalizedTag) { this._setStatus('Remove tag: enter a tag to remove.'); return; }
+        st.removeTagTag = normalizedTag;
+        const opts = this._tagScanOpts();
+        const caseSens = !!st.caseSensitive;
+        const rows = [];
+        let rowId = 0;
+        const seen = new Set();
+        const pushRow = (row) => {
+            const key = `${row.recordGuid}|${row.hitKind}|${row.lineItemIndex}|${row.segmentIndex}|${row.textOccurrenceIndex ?? ''}|${row.propertyName || ''}|${row.propertyValueIndex ?? ''}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            rows.push(row);
+        };
+        await this.forEachScannableRecord(opts, async (record) => {
+            const recordGuid = record?.guid || '';
+            const recordName = record.getName?.() || '(untitled)';
+            const lineItems = await record.getLineItems(true);
+            const previewLines = [];
+            for (const item of (lineItems || [])) {
+                const segs = item?.segments;
+                if (!Array.isArray(segs)) continue;
+                const txt = segs.map(s => this.segmentTextAsString(s)).join('').trim();
+                if (!txt) continue;
+                previewLines.push(txt);
+                if (previewLines.length >= 2) break;
+            }
+            const preview = previewLines.join('\n').slice(0, 256);
+            for (let liIdx = 0; liIdx < (lineItems || []).length; liIdx += 1) {
+                const item = lineItems[liIdx];
+                const segs = item?.segments;
+                if (!Array.isArray(segs)) continue;
+                for (let i = 0; i < segs.length; i += 1) {
+                    const seg = segs[i];
+                    const segText = this.segmentTextAsString(seg);
+                    if (!segText) continue;
+                    if (seg?.type === THYMER_TYPE_HASHTAG && this._isTagMatch(segText, normalizedTag, caseSens)) {
+                        pushRow({
+                            id: `rt-${rowId++}`,
+                            action: 'default',
+                            recordGuid,
+                            recordName,
+                            source: 'body-hashtag-segment',
+                            preview,
+                            hitKind: 'body-hashtag-seg',
+                            lineItemIndex: liIdx,
+                            segmentIndex: i,
+                            textOccurrenceIndex: null,
+                            propertyName: '',
+                            propertyValueIndex: null,
+                        });
+                    } else if (seg?.type === 'text') {
+                        const re = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}][\p{L}\p{N}_./-]*)(?![\p{L}\p{N}_])/gu;
+                        let occ = 0;
+                        let m;
+                        while ((m = re.exec(segText)) !== null) {
+                            const token = this.cleanTag(m[2] ?? '');
+                            if (!token || !this._isTagMatch(token, normalizedTag, caseSens)) continue;
+                            pushRow({
+                                id: `rt-${rowId++}`,
+                                action: 'default',
+                                recordGuid,
+                                recordName,
+                                source: 'body-plaintext-token',
+                                preview,
+                                hitKind: 'body-text-token',
+                                lineItemIndex: liIdx,
+                                segmentIndex: i,
+                                textOccurrenceIndex: occ,
+                                propertyName: '',
+                                propertyValueIndex: null,
+                            });
+                            occ += 1;
+                        }
+                    }
+                }
+            }
+            const properties = record.getAllProperties?.() || [];
+            for (const prop of properties) {
+                if (!this.shouldScanTextPropertyForTags(prop)) continue;
+                if (this._shouldSuppressTextLikeTagsFromExcludedLabelEnum(prop, opts)) continue;
+                const propertyName = String(prop?.name ?? '');
+                const texts = prop.texts?.() || [];
+                for (let vi = 0; vi < texts.length; vi += 1) {
+                    const v = String(texts[vi] ?? '');
+                    if (!this._isTagMatch(v, normalizedTag, caseSens)) continue;
+                    pushRow({
+                        id: `rt-${rowId++}`,
+                        action: 'default',
+                        recordGuid,
+                        recordName,
+                        source: `property-text:${propertyName}`,
+                        preview,
+                        hitKind: 'property-text',
+                        lineItemIndex: -1,
+                        segmentIndex: -1,
+                        textOccurrenceIndex: null,
+                        propertyName,
+                        propertyValueIndex: vi,
+                    });
+                }
+            }
+        });
+        st.removeTagRows = this._collapseRemoveTagRowsByRecord(rows);
+        const gridRows = this._removeTagRowsForDisplay();
+        st.removeTagMeta = st.removeTagRows.length ? this._removeTagMetaSummary(gridRows) : 'No queue built.';
+        st.removeTagOutput = '';
+        this._setStatus(st.removeTagMeta, { title: 'Remove tag' });
+    }
+
+    /** Human-readable placement for apply / review log (matches queue `source`). */
+    _removeTagPlacementLabel(source) {
+        const s = String(source || '').trim();
+        if (!s) return 'remove hits';
+        if (/^\d+ location\(s\)$/.test(s)) return s;
+        if (s.startsWith('property-text:')) return `hashtag property text (${s.slice('property-text:'.length)})`;
+        if (s === 'body-hashtag-segment') return 'body (hashtag segment)';
+        if (s === 'body-plaintext-token') return 'body (# in plain text)';
+        return s;
+    }
+
+    _removeTagPreview() {
+        const st = this._tagState;
+        const rows = st.removeTagRows || [];
+        if (!rows.length) {
+            st.removeTagOutput = 'Remove tag preview: build a queue first (Find matches).';
+            this._logRow('remove-tag', 'preview', { recordGuid: '', recordName: '' }, st.removeTagOutput);
+            this._setStatus(st.removeTagOutput, { title: 'Remove tag', logged: true });
+            return;
+        }
+        const toRemove = rows.filter(r => r.action === 'default').length;
+        const skipped = rows.filter(r => r.action === 'skip').length;
+        st.removeTagOutput = [
+            'Remove tag — preview (no writes)',
+            `Tag: #${this.cleanTag(st.removeTagTag || '')}`,
+            `Queue rows: ${rows.length}`,
+            `Marked remove: ${toRemove}`,
+            `Marked skip: ${skipped}`,
+        ].join('\n');
+        this._logRow('remove-tag', 'preview', { recordGuid: '', recordName: '' }, st.removeTagOutput);
+        this._setStatus(st.removeTagOutput, { title: 'Remove tag', logged: true });
+    }
+
+    _adjustRemoveTagLineIndices(pendingBodyHits, deletedLineIndex) {
+        for (const h of pendingBodyHits) {
+            if (typeof h.lineItemIndex !== 'number') continue;
+            if (h.lineItemIndex > deletedLineIndex) h.lineItemIndex -= 1;
+        }
+    }
+
+    /**
+     * Applies remove-tag hits for one record. Returns whether any persisted write occurred
+     * (so summaries stay accurate when some queue rows are skipped).
+     */
+    async _applyRemoveTagHitsOnRecord(record, hits, tag, caseSensitive) {
+        let anyWrite = false;
+        const tagClean = this.cleanTag(tag);
+        const body = hits.filter(h => h.hitKind === 'body-hashtag-seg' || h.hitKind === 'body-text-token').map(h => ({ ...h }));
+        const propHits = hits.filter(h => h.hitKind === 'property-text').map(h => ({ ...h }));
+        body.sort((a, b) => {
+            if (b.lineItemIndex !== a.lineItemIndex) return b.lineItemIndex - a.lineItemIndex;
+            if (b.segmentIndex !== a.segmentIndex) return b.segmentIndex - a.segmentIndex;
+            return (b.textOccurrenceIndex ?? 0) - (a.textOccurrenceIndex ?? 0);
+        });
+        for (const hit of body) {
+            const lineItems = await record.getLineItems(true);
+            const liIdx = hit.lineItemIndex;
+            if (liIdx < 0 || liIdx >= lineItems.length) continue;
+            const item = lineItems[liIdx];
+            if (!item) continue;
+            const segments = item.segments;
+            if (!Array.isArray(segments)) continue;
+            if (hit.hitKind === 'body-hashtag-seg') {
+                const si = hit.segmentIndex;
+                const seg = segments[si];
+                if (!seg || seg.type !== THYMER_TYPE_HASHTAG) continue;
+                const segText = this.segmentTextAsString(seg);
+                if (!this._isTagMatch(segText, tagClean, caseSensitive)) continue;
+                let next = this._cloneLineItemSegments(segments);
+                next.splice(si, 1);
+                next = this._pruneEmptyTextSegments(this._mergeAdjacentTextSegments(next));
+                if (this._lineItemSegmentsDisplayEmpty(next)) {
+                    if (typeof item.delete === 'function') {
+                        await item.delete();
+                        anyWrite = true;
+                        this._adjustRemoveTagLineIndices(body, liIdx);
+                    }
+                } else if (typeof item.setSegments === 'function') {
+                    await item.setSegments(next);
+                    anyWrite = true;
+                } else {
+                    item.segments = next;
+                    anyWrite = true;
+                }
+                continue;
+            }
+            if (hit.hitKind === 'body-text-token') {
+                const si = hit.segmentIndex;
+                const seg = segments[si];
+                if (!seg || seg.type !== 'text') continue;
+                const rawText = this.segmentTextAsString(seg);
+                const occ = hit.textOccurrenceIndex ?? 0;
+                const { changed } = this._removeNthHashtagTokenFromText(rawText, tagClean, caseSensitive, occ);
+                if (!changed) continue;
+                let next = this._cloneLineItemSegments(segments);
+                next[si] = { ...next[si], text };
+                next = this._pruneEmptyTextSegments(this._mergeAdjacentTextSegments(next));
+                if (this._lineItemSegmentsDisplayEmpty(next)) {
+                    if (typeof item.delete === 'function') {
+                        await item.delete();
+                        anyWrite = true;
+                        this._adjustRemoveTagLineIndices(body, liIdx);
+                    }
+                } else if (typeof item.setSegments === 'function') {
+                    await item.setSegments(next);
+                    anyWrite = true;
+                } else {
+                    item.segments = next;
+                    anyWrite = true;
+                }
+            }
+        }
+        propHits.sort((a, b) => (b.propertyValueIndex ?? 0) - (a.propertyValueIndex ?? 0));
+        const properties = record.getAllProperties?.() || [];
+        const opts = this._tagScanOpts();
+        for (const hit of propHits) {
+            const pname = hit.propertyName;
+            const vi = hit.propertyValueIndex;
+            const prop = properties.find(p => String(p?.name ?? '') === pname);
+            if (!prop || !this.shouldScanTextPropertyForTags(prop)) continue;
+            if (this._shouldSuppressTextLikeTagsFromExcludedLabelEnum(prop, opts)) continue;
+            const texts = prop.texts?.();
+            if (!Array.isArray(texts) || vi == null || vi < 0 || vi >= texts.length) continue;
+            const v = String(texts[vi] ?? '');
+            if (!this._isTagMatch(v, tagClean, caseSensitive)) continue;
+            const nextTexts = texts.filter((_, i) => i !== vi);
+            if (typeof prop.set !== 'function') continue;
+            prop.set(nextTexts);
+            anyWrite = true;
+        }
+        return anyWrite;
+    }
+
+    async _removeTagApply() {
+        const st = this._tagState;
+        const tag = this.cleanTag(st.removeTagTag || '');
+        const rows = Array.isArray(st.removeTagRows) ? st.removeTagRows : [];
+        const rowsToApply = rows.filter(r => r.action !== 'skip');
+        if (!tag) {
+            st.removeTagOutput = 'Remove tag apply: no tag set.';
+            this._logRow('remove-tag', 'summary', { recordGuid: '', recordName: '' }, st.removeTagOutput);
+            this._setStatus(st.removeTagOutput, { title: 'Remove tag', logged: true });
+            if (this._panel) this._render(this._panel);
+            return;
+        }
+        if (!rowsToApply.length) {
+            st.removeTagOutput = 'Remove tag apply: no rows marked for removal (all skipped or empty queue).';
+            this._logRow('remove-tag', 'summary', { recordGuid: '', recordName: '' }, st.removeTagOutput);
+            this._setStatus(st.removeTagOutput, { title: 'Remove tag', logged: true });
+            if (this._panel) this._render(this._panel);
+            return;
+        }
+        st.running = true;
+        if (this._panel) this._render(this._panel);
+        const byRecord = new Map();
+        const metaByGuid = new Map();
+        for (const row of rowsToApply) {
+            const g = row.recordGuid || '';
+            if (!g) continue;
+            if (!byRecord.has(g)) byRecord.set(g, []);
+            if (!metaByGuid.has(g)) {
+                metaByGuid.set(g, {
+                    recordName: row.recordName || '',
+                    placement: this._removeTagPlacementLabel(row.source),
+                });
+            }
+            const parts = row.hitKind === 'merged' && Array.isArray(row.subHits)
+                ? row.subHits
+                : [{
+                    hitKind: row.hitKind,
+                    lineItemIndex: row.lineItemIndex,
+                    segmentIndex: row.segmentIndex,
+                    textOccurrenceIndex: row.textOccurrenceIndex,
+                    propertyName: row.propertyName,
+                    propertyValueIndex: row.propertyValueIndex,
+                }];
+            for (const h of parts) byRecord.get(g).push(h);
+        }
+        const opts = this._tagScanOpts();
+        let recordsWritten = 0;
+        let failed = 0;
+        let applyAttempts = 0;
+        let noWrite = 0;
+        const writtenLines = [];
+        try {
+            await this.forEachScannableRecord(opts, async (record) => {
+                const guid = record?.guid || '';
+                if (!byRecord.has(guid)) return;
+                const meta = metaByGuid.get(guid) || { recordName: '', placement: '' };
+                const recordNameLive = record.getName?.() || meta.recordName || '(untitled)';
+                const placement = meta.placement || 'remove hits';
+                applyAttempts += 1;
+                try {
+                    const written = await this._applyRemoveTagHitsOnRecord(record, byRecord.get(guid), tag, st.caseSensitive);
+                    if (written) {
+                        recordsWritten += 1;
+                        writtenLines.push(`• ${recordNameLive} — ${placement} [${guid}]`);
+                        this._logRow('remove-tag', 'applied', {
+                            recordGuid: guid,
+                            recordName: recordNameLive,
+                        }, `Removed #${tag} — ${placement}`);
+                    } else {
+                        noWrite += 1;
+                    }
+                } catch (e) {
+                    failed += 1;
+                    this._logRow('remove-tag', 'failed', {
+                        recordGuid: guid,
+                        recordName: recordNameLive,
+                    }, String(e?.message || e));
+                }
+            });
+            const runAt = new Date().toLocaleString();
+            const maxList = 120;
+            const listBody = writtenLines.length
+                ? [
+                    '',
+                    `Updated records (${writtenLines.length}):`,
+                    ...writtenLines.slice(0, maxList),
+                    writtenLines.length > maxList ? `… and ${writtenLines.length - maxList} more (each write is also a row in Review log).` : '',
+                ].filter(Boolean)
+                : [];
+            st.removeTagOutput = [
+                'Remove tag — apply complete',
+                `Run timestamp: ${runAt}`,
+                `Tag removed: #${tag}`,
+                `Records marked Remove (unique): ${byRecord.size}`,
+                `Apply attempts (records reached): ${applyAttempts}`,
+                `Records modified (writes applied): ${recordsWritten}`,
+                `No write at apply (e.g. tag already gone, hits no longer matched): ${noWrite}`,
+                `Errors: ${failed}`,
+                ...listBody,
+            ].join('\n');
+            this._clearRemoveTagQueue();
+            st.removeTagTag = '';
+            this._clearAddTagQueue();
+            this._resetReviewGridWorkflow();
+            await this._refreshTagIndex({ quiet: true });
+            this._logRow('remove-tag', 'summary', { recordGuid: '', recordName: '' }, st.removeTagOutput);
+            this._setStatus(st.removeTagOutput, { title: 'Remove tag', logged: true });
+        } finally {
+            st.running = false;
+        }
+    }
+
     _tagScanOpts() {
         return {
             excludeChoiceValues: !!this._tagState.excludeChoiceValues,
@@ -2935,7 +4271,7 @@ ${this._sharedTailHTML()}
             const segments = item?.segments;
             if (!Array.isArray(segments)) continue;
             for (const seg of segments) {
-                if (seg?.type === 'hashtag') {
+                if (seg?.type === THYMER_TYPE_HASHTAG) {
                     const tag = this.cleanTag(this.segmentTextAsString(seg));
                     if (this.isUsableTagCandidate(tag)) tags.add(tag);
                     continue;
@@ -3006,6 +4342,8 @@ ${this._sharedTailHTML()}
     }
 
     shouldScanTextPropertyForTags(prop) {
+        if (this._isPropertyTypeHashtag(prop)) return true;
+        if (this._isTagsColumnName(prop)) return true;
         const name = String(prop?.name ?? '').toLowerCase().trim();
         if (!name) return false;
         if (name.includes('tag') || name.includes('hashtag')) return true;
@@ -3118,6 +4456,79 @@ ${this._sharedTailHTML()}
             return `${prefix}#${newClean}`;
         });
         return { changed: replacements > 0, text: nextText, replacements };
+    }
+
+    _normalizeInteriorWhitespace(text) {
+        if (typeof text !== 'string' || !text) return '';
+        return text.replace(/\s+/g, ' ').trim();
+    }
+
+    /**
+     * Remove the n-th (0-based) standalone `#tag` token in `text` using the same boundary rules as rename.
+     * Collapses runs of whitespace afterward.
+     */
+    _removeNthHashtagTokenFromText(text, tag, caseSensitive, occurrenceIndex) {
+        if (typeof text !== 'string' || !text) return { changed: false, text };
+        const oldClean = this.cleanTag(tag);
+        if (!oldClean) return { changed: false, text };
+        const escaped = oldClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const flags = caseSensitive ? 'gu' : 'giu';
+        const re = new RegExp(`(^|[^\\p{L}\\p{N}_])#${escaped}(?![\\p{L}\\p{N}_])`, flags);
+        let i = 0;
+        const nextText = text.replace(re, (match, prefix) => {
+            if (i++ !== occurrenceIndex) return match;
+            return prefix;
+        });
+        const normalized = this._normalizeInteriorWhitespace(nextText);
+        return { changed: nextText !== text || normalized !== text, text: normalized };
+    }
+
+    _cloneLineItemSegments(segments) {
+        if (!Array.isArray(segments)) return [];
+        return segments.map(s => (s && typeof s === 'object' ? { ...s } : s));
+    }
+
+    _mergeAdjacentTextSegments(segments) {
+        const out = [];
+        for (const seg of segments || []) {
+            if (!seg) continue;
+            const prev = out[out.length - 1];
+            if (seg.type === 'text' && prev?.type === 'text') {
+                const a = this.segmentTextAsString(prev);
+                const b = this.segmentTextAsString(seg);
+                prev.text = this._normalizeInteriorWhitespace(`${a} ${b}`);
+                if ('value' in prev) delete prev.value;
+                continue;
+            }
+            out.push({ ...seg });
+        }
+        return out;
+    }
+
+    _lineItemSegmentsDisplayEmpty(segments) {
+        const joined = (segments || []).map(s => this.segmentTextAsString(s)).join('');
+        return !this._normalizeInteriorWhitespace(joined);
+    }
+
+    _pruneEmptyTextSegments(segments) {
+        const next = [];
+        for (const seg of segments || []) {
+            if (!seg) continue;
+            if (seg.type === 'text') {
+                const t = this._normalizeInteriorWhitespace(this.segmentTextAsString(seg));
+                if (!t) continue;
+                next.push({ ...seg, text: t });
+                continue;
+            }
+            next.push({ ...seg });
+        }
+        return this._mergeAdjacentTextSegments(next);
+    }
+
+    _tagSuggestionsForRemoveTagList() {
+        const choiceOnly = this._tagState.tagChoiceOnlyTags instanceof Set ? this._tagState.tagChoiceOnlyTags : new Set();
+        const list = Array.isArray(this._tagState.tagIndex) ? this._tagState.tagIndex : [];
+        return list.filter(t => t && !choiceOnly.has(String(t.tag || '').trim()));
     }
 
     _segmentsToText(segments) {
@@ -3386,6 +4797,21 @@ ${this._sharedTailHTML()}
         st.reviewGridCollapsedSources = new Set();
         st.reviewGridMeta = 'No queue built.';
         st.reviewGridOutput = '';
+        st.tagReviewSubMode = 'grid';
+        st.removeTagTag = '';
+        st.removeTagSearchOpen = false;
+        st.removeTagFilter = '';
+        st.removeTagSort = 'title-asc';
+        st.removeTagRows = [];
+        st.removeTagMeta = 'No queue built.';
+        st.removeTagOutput = '';
+        st.addTagTag = '';
+        st.addTagRecordFilter = '';
+        st.addTagTableFilter = '';
+        st.addTagSort = 'title-asc';
+        st.addTagRows = [];
+        st.addTagMeta = 'No queue built.';
+        st.addTagOutput = '';
         st.excludedPickerOpen = false;
         st.excludedPickerFilter = '';
         st.tagAnalyzerThreshold = 5;
@@ -3426,7 +4852,7 @@ ${this._sharedTailHTML()}
     _captureFocusState(rootEl) {
         const active = document.activeElement;
         if (!(active instanceof HTMLInputElement) || !rootEl.contains(active)) return null;
-        const known = ['.nm-bm-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-tr-exclude-picker-filter', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter', '.nm-ta-target-input'];
+        const known = ['.nm-bm-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-tr-exclude-picker-filter', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter', '.nm-rt-tag', '.nm-rt-filter', '.nm-at-tag', '.nm-at-record-filter', '.nm-at-table-filter', '.nm-ta-target-input'];
         const selector = known.find(sel => active.matches(sel));
         if (!selector) return null;
         return { selector, selectionStart: active.selectionStart, selectionEnd: active.selectionEnd };
