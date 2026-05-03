@@ -4,7 +4,37 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Version
 
-- **Current version:** `1.0.5`
+- **Current version:** `1.0.6`
+
+### What’s new in 1.0.6
+
+**Shared shell and navigation**
+
+- **One frame everywhere:** Header (menu + breadcrumb), grouped **tool navigation** (Overview → Home; Structure → Assign subpages; Bulk → Bulk move; Tags → Rename, **Trace & Review**, Analyzer, Merge), **main** content, then the shared **Review log**—same layout for every mode so switching tools feels more continuous.
+
+**Tag analyzer — per-member editing**
+
+- **Exclude individual tags from a cluster:** Each member pill now has an **×** to drop just that tag from the cluster. Excluded members are shown struck-through; click **↺** on the same pill to restore. Excluded members are removed from the export plan’s `merging` list and from `combinedCount`. Clicking the **text** of an excluded pill (to pick it as the target) auto-restores it.
+- **Auto-pick fallback:** Excluding the current target shifts the target to the highest-count remaining active member automatically; you can always override via pill click or the **Target tag** input.
+- **Skipped clusters:** Once a cluster has fewer than 2 active members it is automatically skipped in the export, with a header note (`Skipped in export — fewer than 2 active members`).
+- **Convert to manual:** Auto clusters now show a small **Convert to manual** button next to **Omit from export**. Conversion gives the cluster a stable id so member exclusions, target picks, and custom target text **survive re-Analyze** (manual clusters are already preserved by the existing `prevManual` carry-over). The cluster then displays the existing **Manual** badge.
+- **Add tags to a manual cluster:** Each manual cluster (including auto clusters that were Converted to manual) now exposes an inline **+ Add tag** input plus an **Add tags…** picker in its detail pane. The inline input shows top suggestions (sorted by usage count) as you type — Enter accepts the top match, click a suggestion pill, or click **+ Add** to add the typed tag. The picker opens a tickable list (filter + checklist) for bulk adds. Adds are restricted to tags that exist in the current tag index. Toasts report `added` / `restored` / `already member` / `not in index`. Refusing on auto clusters: a toast asks you to **Convert to manual** first.
+- **Cluster header summary:** Shows `N/M active → 1` when any members are excluded (versus `N tags → 1` previously) and the detail pane lists the excluded tag names plus active-vs-total combined counts.
+
+**Performance**
+
+- **Debounced filter typing:** Filter and slider inputs across Bulk move, Assign subpages, Tag review (Review Grid / Remove tag / Add tag, plus the excluded-collections picker filter) and the Tag analyzer (manual cluster filter, threshold + similarity sliders) now coalesce rapid keystrokes through a shared 120 ms debounce instead of re-rendering the whole panel on every character. State updates remain synchronous so values stay correct, but the costly DOM rewrite is deferred until typing pauses.
+- **Tag review — render-scoped memoization:** The Review Grid / Remove tag / Add tag display rows (filter + sort) are now memoized per render and only the active sub-mode is computed. Switching tabs or reaching them with large queues skips two redundant filter-and-sort passes per render.
+- **Tag review — review-log work skipped when collapsed:** The shared Review log only slices/reverses `_activityLog` and renders rows when it is actually expanded. Default-collapsed renders no longer pay for that work.
+- **Tag index refresh — single pass:** `_refreshTagIndex` now collects choice-inclusive and choice-exclusive tag sets in one walk over each record’s line items and properties (via a new `collectTagsFromRecordWithChoiceVariants` helper), removing a second full record scan and the duplicate `getLineItems(true)` calls.
+- **Excluded-collections check:** `shouldExcludeCollection` lowercases the configured exclude list once per scan instead of on every iteration of the inner `some()` loop.
+- **Review Grid apply — O(N+M) lookup:** `_reviewGridApply` indexes per-row targets in a `Map<guid, Map<src, Set<target>>>` and joins by record GUID instead of scanning the full overrides table for each scanned record.
+- **Tag analyzer — Levenshtein 2-row DP:** `_tagAnalyzerLevenshtein` now uses a two-row dynamic-programming table (O(min(m, n)) memory) instead of the full O(m·n) matrix, and similarity calculations reuse precomputed per-tag signatures (lowercased token / length cache) so the O(N²) cluster scan stops re-tokenizing the same tags.
+
+**Fixed**
+
+- **Remove tag — body text segments:** `_applyRemoveTagHitsOnRecord` no longer throws `ReferenceError: text is not defined` when removing a hashtag occurrence inside a `body-text-token` segment; the rewritten segment text is now captured from `_removeNthHashtagTokenFromText` and applied correctly.
+- **Tag analyzer — manual cluster persistence:** **Change threshold / sensitivity** no longer wipes manual clusters (and clusters that were **Convert to manual**’d). Both that flow and an in-place re-Analyze now preserve manual clusters along with their target picks (`tagAnalyzerReplacements`), the open cluster id (when it points to a kept manual cluster), per-member exclusions, and the manual id counter so newly minted ids never collide.
 
 ### What’s new in 1.0.5
 
@@ -63,7 +93,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Included Tools
 
-(List order matches the Home screen and menu: A–Z by label.)
+(Tools appear in the panel **navigation bar** by group. The header **menu** lists the same tools in **A–Z** order by label, with **Home** first.)
 
 - **Assign subpages**
 - **Bulk move notes**
@@ -76,8 +106,8 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ### Shared Panel UX
 
-- Native custom panel with top menu and breadcrumb path (`Home / ...`).
-- **Home** and the **menu** list tools in **A–Z** order by label (menu keeps **Home** first, then tools alphabetically).
+- Native custom panel: **breadcrumb** in the header (`Home / ...`), grouped **navigation bar** under the header for every mode, then **main** content and the shared **Review log**.
+- The **menu** lists tools in **A–Z** order by label (**Home** first, then tools alphabetically).
 - Command palette entries for:
   - `Notes Manager: Open`
   - `Notes Manager: Assign subpages`
@@ -144,6 +174,9 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - **Usage threshold:** tags at or below this use-count are “low-use” seeds for clustering (slider max grows with your data).
 - **Similarity sensitivity:** 15–70% (same role as the reference tool: lower = looser string/token matches, higher = stricter). Clustering blends normalized Levenshtein, token Jaccard, and a small bonus when one tag contains the other (tokenization uses letters and numbers in any language).
 - **Analyze** builds clusters (expand a row to pick a target tag or type one), lists **orphan** low-use tags that matched no cluster, and shows **Potential savings** (same count formula as the reference).
+- **Per-member editing:** Each member pill has **×** to exclude that tag from the cluster (pill is shown struck-through; **↺** restores it). Excluded members are dropped from the exported `merging` and `combinedCount`. Excluding the current target shifts the target to the highest-count remaining active member. A cluster with fewer than 2 active members is automatically skipped in the export.
+- **Convert auto cluster to manual:** Auto clusters expose a **Convert to manual** button next to **Omit from export**. The cluster gets a stable id so member exclusions and target choices persist across **Analyze** re-runs; manual clusters are already preserved.
+- **Add tags to a manual cluster:** In the detail of any manual cluster, an inline **+ Add tag** input (with usage-sorted suggestions, Enter to accept the top match) and an **Add tags…** picker (filter + tickable list) let you grow the cluster after creation. Adds are restricted to the current tag index; auto clusters refuse with a toast that points you to **Convert to manual**.
 - **Jump controls:** **Jump to export JSON** opens/scrolls to the export panel; **Jump to orphan tags** scrolls to the orphan section (disabled when there are no orphans).
 - **Show export JSON** opens the consolidation plan and switches to **Close export JSON** while open. The preview shows **Clusters in export** and **JSON lines** (line count of the pretty-printed body) above the array, then the plan (`replacement`, `merging`, `combinedCount` per cluster). **Save export JSON** and **Copy** still output a valid JSON **array** only (for Tag merge and other tools). Applying merges in Thymer is still a manual or Tag-rename step.
 - **Orphan tags:** Header includes a **Copy** action to copy orphan tags and counts to clipboard.
@@ -188,7 +221,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Typical Workflow
 
-1. Open one of the tools from the top menu (or command palette).
+1. Open a tool from the **navigation bar**, the header **menu**, or the **command palette**.
 2. Configure filters/inputs and run **Preview** first.
 3. Confirm preview output and row selection.
 4. Run **Apply**.

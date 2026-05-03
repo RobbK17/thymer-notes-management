@@ -1,7 +1,7 @@
 /** @see thymerapp/thymer-plugin-sdk types.d.ts PROP_TYPE_HASHTAG, PLUGIN_LINE_ITEM_SEGMENT_TYPE_HASHTAG */
 const THYMER_TYPE_HASHTAG = 'hashtag';
 
-const NOTES_MANAGER_VERSION = '1.0.5';
+const NOTES_MANAGER_VERSION = '1.0.7';
 
 class NotesManagerPanel {
     constructor(plugin) {
@@ -11,6 +11,10 @@ class NotesManagerPanel {
         this._status = '';
         this._lastLoggedDetail = '';
         this._listenerAbort = null;
+        // Per-render memoization for the three *RowsForDisplay helpers. Set to {} at the
+        // start of _render(), cleared to null at the end so click handlers between renders
+        // never see stale filtered/sorted snapshots after state mutations.
+        this._displayRowsCache = null;
 
         this._settingsKey = 'notes-manager-settings-v1';
         this._settings = {
@@ -128,6 +132,12 @@ class NotesManagerPanel {
             tagAnalyzerPickFilter: '',
             tagAnalyzerPickSelected: [],
             tagAnalyzerNextClusterId: 100000,
+            // Per-cluster "+ Add tag" inline input value, keyed by cluster id.
+            tagAnalyzerAddInputs: {},
+            // Per-cluster picker (only one open at a time).
+            tagAnalyzerAddPickerOpenId: null,
+            tagAnalyzerAddPickerFilter: '',
+            tagAnalyzerAddPickerSelected: [],
         };
     }
 
@@ -216,6 +226,13 @@ class NotesManagerPanel {
             '.nm-review-head{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer}' +
             '.nm-review-title{font-size:13px;font-weight:600;opacity:.75}' +
             '.nm-review-body{margin-top:10px}' +
+            '.nm-shell-nav{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 16px;padding:10px 0 14px;border-bottom:1px solid var(--cards-border-color);margin-bottom:4px}' +
+            '.nm-shell-group{display:flex;flex-wrap:wrap;align-items:center;gap:6px}' +
+            '.nm-shell-group-label{font-size:11px;font-weight:600;opacity:.45;text-transform:uppercase;letter-spacing:.04em;margin-right:4px}' +
+            '.nm-shell-nav-item{background:color-mix(in srgb,var(--cards-bg) 75%, var(--input-bg-color) 25%);border:1px solid var(--sidebar-border-color);color:inherit;cursor:pointer;font-size:12px;font-weight:600;padding:5px 10px;border-radius:var(--ed-radius-normal)}' +
+            '.nm-shell-nav-item:hover{background:var(--cards-hover-bg)}' +
+            '.nm-shell-nav-item--on{border-color:color-mix(in srgb,var(--ed-button-primary-bg,#4c8dff) 55%, var(--sidebar-border-color));box-shadow:0 0 0 1px color-mix(in srgb,var(--ed-button-primary-bg,#4c8dff) 35%,transparent)}' +
+            '.nm-shell-main{min-height:0}' +
             '.nm-log-table-wrap{border:1px solid var(--cards-border-color);border-radius:var(--ed-radius-block);overflow:auto;max-height:200px}' +
             '.nm-log-table{width:100%;border-collapse:collapse;font-size:12px}' +
             '.nm-log-table th,.nm-log-table td{padding:6px 8px;border-bottom:1px solid var(--cards-border-color);text-align:left;white-space:nowrap}' +
@@ -240,6 +257,24 @@ class NotesManagerPanel {
             '.nm-ta-pills{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}' +
             '.nm-ta-pill{font-size:12px;padding:4px 10px;border:1px solid var(--cards-border-color);border-radius:6px;background:var(--cards-bg);cursor:pointer}' +
             '.nm-ta-pill--on{border-color:var(--cards-border-color);outline:2px solid color-mix(in srgb,currentcolor 35%,transparent)}' +
+            '.nm-ta-mpill{display:inline-flex;align-items:stretch;font-size:12px;border:1px solid var(--cards-border-color);border-radius:6px;background:var(--cards-bg);overflow:hidden}' +
+            '.nm-ta-mpill--on{outline:2px solid color-mix(in srgb,currentcolor 35%,transparent)}' +
+            '.nm-ta-mpill--excluded{opacity:.55}' +
+            '.nm-ta-mpill--excluded .nm-ta-mpill-text{text-decoration:line-through}' +
+            '.nm-ta-mpill-text{padding:4px 10px;border:none;background:transparent;cursor:pointer;color:inherit;font:inherit}' +
+            '.nm-ta-mpill-text:hover{background:var(--cards-hover-bg)}' +
+            '.nm-ta-mpill-x{padding:4px 8px;border:none;border-left:1px solid var(--cards-border-color);background:transparent;cursor:pointer;color:inherit;font:inherit;line-height:1;opacity:.7}' +
+            '.nm-ta-mpill-x:hover{background:var(--cards-hover-bg);opacity:1}' +
+            '.nm-ta-convert-manual{font-size:11px;padding:2px 8px;border:1px solid var(--cards-border-color);border-radius:6px;background:var(--cards-bg);cursor:pointer;color:inherit}' +
+            '.nm-ta-convert-manual:hover{background:var(--cards-hover-bg)}' +
+            '.nm-ta-cluster-warn{font-size:11px;color:var(--ed-warn-color,#c98b1c);margin-left:6px}' +
+            '.nm-ta-add-row{margin-top:10px;padding:8px;border:1px dashed var(--cards-border-color);border-radius:6px}' +
+            '.nm-ta-add-input-wrap{display:flex;align-items:center;gap:6px;flex-wrap:wrap}' +
+            '.nm-ta-add-input{flex:1 1 200px;min-width:160px}' +
+            '.nm-ta-add-suggest{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}' +
+            '.nm-ta-add-suggest-pill{font-size:12px;padding:3px 8px;border:1px solid var(--cards-border-color);border-radius:6px;background:var(--cards-bg);cursor:pointer;color:inherit}' +
+            '.nm-ta-add-suggest-pill:hover{background:var(--cards-hover-bg)}' +
+            '.nm-ta-add-picker{margin-top:8px;padding:8px;border:1px solid var(--cards-border-color);border-radius:6px;background:var(--cards-bg)}' +
             '.nm-ta-export-pre{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--cards-bg);border:1px solid var(--cards-border-color);border-radius:6px;padding:10px;overflow:auto;max-height:260px;white-space:pre-wrap;word-break:break-word}' +
             'input[type=range].nm-ta-range{width:100%}'
         );
@@ -392,12 +427,32 @@ ${pickerHtml}
 
     _buildReviewLogSection() {
         const collapsed = !!this._settings.reviewLogCollapsed;
+        const head = `<div class="nm-review"><div class="nm-review-head" data-action="toggle-review-log"><span class="nm-review-title">Review log (${this._activityLog.length} entries)</span><span class="nm-muted">${collapsed ? 'Show' : 'Hide'}</span></div>`;
+        if (collapsed) return `${head}</div>`;
         const recent = this._activityLog.slice(-100).reverse();
-        return `<div class="nm-review"><div class="nm-review-head" data-action="toggle-review-log"><span class="nm-review-title">Review log (${this._activityLog.length} entries)</span><span class="nm-muted">${collapsed ? 'Show' : 'Hide'}</span></div>${collapsed ? '' : `<div class="nm-review-body"><div class="nm-actions" style="margin-bottom:8px;"><button class="nm-btn nm-btn--secondary" data-action="export-log-json">Save log JSON</button><button class="nm-btn nm-btn--secondary" data-action="clear-log">Clear log</button></div><div class="nm-log-table-wrap"><table class="nm-log-table"><thead><tr><th>Time</th><th>Operation</th><th>Status</th><th>Record</th><th>Detail</th></tr></thead><tbody>${recent.map(r => `<tr><td>${this._escape(r.time)}</td><td>${this._escape(r.operation)}</td><td>${this._escape(r.status)}</td><td>${this._escape(r.recordName || r.recordGuid || '')}</td><td>${this._escape(r.detail || '')}</td></tr>`).join('') || '<tr><td colspan="5">No log entries yet.</td></tr>'}</tbody></table></div></div>`}</div>`;
+        const rowsHtml = recent.map(r => `<tr><td>${this._escape(r.time)}</td><td>${this._escape(r.operation)}</td><td>${this._escape(r.status)}</td><td>${this._escape(r.recordName || r.recordGuid || '')}</td><td>${this._escape(r.detail || '')}</td></tr>`).join('') || '<tr><td colspan="5">No log entries yet.</td></tr>';
+        return `${head}<div class="nm-review-body"><div class="nm-actions" style="margin-bottom:8px;"><button class="nm-btn nm-btn--secondary" data-action="export-log-json">Save log JSON</button><button class="nm-btn nm-btn--secondary" data-action="clear-log">Clear log</button></div><div class="nm-log-table-wrap"><table class="nm-log-table"><thead><tr><th>Time</th><th>Operation</th><th>Status</th><th>Record</th><th>Detail</th></tr></thead><tbody>${rowsHtml}</tbody></table></div></div></div>`;
     }
 
     _buildHomeHTML() {
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Notes Manager</p><p class="nm-text">Bulk move, assign subpages, tag rename, review, analyzer, and merge-from-plan share the same panel and review log.</p><div class="nm-actions"><button class="nm-btn" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="bulk-move">Bulk move notes</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-analyzer">Tag analyzer</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-merge">Tag merge</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button></div></div>${this._sharedTailHTML()}</div>`;
+        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Notes Manager</p><p class="nm-text">Use the navigation bar above to open any tool. The review log below is shared across operations.</p><p class="nm-muted" style="margin-top:12px;font-size:13px;line-height:1.55"><strong>Overview</strong> — this screen.<br><strong>Structure</strong> — assign subpages (collections with Sub-pages).<br><strong>Bulk</strong> — move many notes between collections.<br><strong>Tags</strong> — quick rename, advanced review (grid / remove / add / trace), analyzer, merge from plan JSON.</p></div>${this._shellFrameClose()}`;
+    }
+
+    _shellNavItem(mode, label) {
+        const on = this._mode === mode ? ' nm-shell-nav-item--on' : '';
+        return `<button type="button" class="nm-shell-nav-item${on}" data-action="set-mode" data-mode="${this._escape(mode)}">${this._escape(label)}</button>`;
+    }
+
+    _shellNavHTML() {
+        return `<nav class="nm-shell-nav" role="navigation" aria-label="Notes Manager tools"><div class="nm-shell-group"><span class="nm-shell-group-label">Overview</span>${this._shellNavItem('home', 'Home')}</div><div class="nm-shell-group"><span class="nm-shell-group-label">Structure</span>${this._shellNavItem('assign-parent', 'Assign subpages')}</div><div class="nm-shell-group"><span class="nm-shell-group-label">Bulk</span>${this._shellNavItem('bulk-move', 'Bulk move')}</div><div class="nm-shell-group"><span class="nm-shell-group-label">Tags</span>${this._shellNavItem('tag-rename', 'Rename')}${this._shellNavItem('tag-review', 'Trace & Review')}${this._shellNavItem('tag-analyzer', 'Analyzer')}${this._shellNavItem('tag-merge', 'Merge')}</div></nav>`;
+    }
+
+    _shellFrameOpen() {
+        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div>${this._shellNavHTML()}<div class="nm-shell-main">`;
+    }
+
+    _shellFrameClose() {
+        return `</div>${this._sharedTailHTML()}</div>`;
     }
 
     _buildBulkMoveHTML() {
@@ -408,7 +463,7 @@ ${pickerHtml}
         const sourceOpts = st.collections.map(c => `<option value="${this._escape(c.guid)}"${st.sourceGuid === c.guid ? ' selected' : ''}>${this._escape(c.name)}</option>`).join('');
         const targetOpts = st.collections.map(c => `<option value="${this._escape(c.guid)}"${st.targetGuid === c.guid ? ' selected' : ''}>${this._escape(c.name)}</option>`).join('');
         const rows = st.filtered.map(rec => `<div class="nm-row"><input type="checkbox" data-action="bm-toggle" data-guid="${this._escape(rec.guid)}"${st.selectedGuids.has(rec.guid) ? ' checked' : ''}><span class="nm-row-name" title="${this._escape(rec.name)}">${this._escape(rec.name)}</span><span class="nm-row-meta">${this._escape(rec.guid)}</span></div>`).join('');
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Bulk Move Notes</p><p class="nm-text">Preview first, then apply. Row-level results are logged.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bm-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Target collection</label><select class="nm-select nm-bm-target">${targetOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bm-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bm-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline"><button class="nm-btn nm-btn--secondary" data-action="bm-select-all">Select all</button><button class="nm-btn nm-btn--secondary" data-action="bm-select-none">Select none</button><span class="nm-pill">${st.filtered.length} records</span><span class="nm-pill">${st.selectedGuids.size} selected</span></div><span class="nm-muted">${st.loading ? 'Loading records...' : ''}</span></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bm-preview">Preview</button><button class="nm-btn" data-action="run-bulk-move"${st.running ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="bm-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._sharedTailHTML()}</div>`;
+        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Bulk Move Notes</p><p class="nm-text">Preview first, then apply. Row-level results are logged.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bm-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Target collection</label><select class="nm-select nm-bm-target">${targetOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bm-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bm-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline"><button class="nm-btn nm-btn--secondary" data-action="bm-select-all">Select all</button><button class="nm-btn nm-btn--secondary" data-action="bm-select-none">Select none</button><span class="nm-pill">${st.filtered.length} records</span><span class="nm-pill">${st.selectedGuids.size} selected</span></div><span class="nm-muted">${st.loading ? 'Loading records...' : ''}</span></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bm-preview">Preview</button><button class="nm-btn" data-action="run-bulk-move"${st.running ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="bm-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
     }
 
     _buildAssignParentHTML() {
@@ -417,14 +472,14 @@ ${pickerHtml}
         const visibleRows = st.rows.filter(r => this._assignRowVisible(r));
         const allVisibleChecked = visibleRows.length > 0 && visibleRows.every(r => r.checked);
         const selectedCount = st.rows.filter(r => r.checked).length;
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Assign Subpages</p><p class="nm-text">Preview assign/unassign actions before applying.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Parent note</label><div class="nm-parent-search-wrap nm-input-wrap"><input class="nm-input nm-ap-parent-search" type="text" value="${this._escape(st.parentQuery)}" placeholder="Type to search parent..." title="Suggestions: ArrowDown/Up; Enter to pick; Esc to close.">${st.parentQuery ? '<button class="nm-parent-clear" data-action="ap-parent-clear" title="Clear parent">×</button>' : ''}${parentHits.length ? `<div class="nm-parent-list">${parentHits.map((r, i) => `<button type="button" class="nm-parent-opt${i === st.parentSuggestActiveIndex && st.parentSuggestActiveIndex >= 0 ? ' nm-parent-opt--active' : ''}" data-action="ap-parent-pick" data-guid="${this._escape(r.guid)}">${this._escape(r.fullTitle)}</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">Filter children</label><div class="nm-input-wrap"><input class="nm-input nm-ap-filter" type="text" value="${this._escape(st.filterText)}" placeholder="Filter by title...">${st.filterText ? '<button class="nm-parent-clear" data-action="ap-filter-clear" title="Clear filter">×</button>' : ''}</div></div></div><div class="nm-list-head"><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-all"${allVisibleChecked ? ' checked' : ''}> <span class="nm-muted">All visible</span></label><span class="nm-pill">${selectedCount} selected</span></div><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-hide-childof"${st.hideChildOfRows ? ' checked' : ''}> <span class="nm-muted">Hide child of:</span></label></div></div><div class="nm-table-wrap"><table class="nm-table"><thead><tr><th style="width:42px"></th><th>Title</th><th>Status</th></tr></thead><tbody>${visibleRows.map(r => `<tr><td><input type="checkbox" data-action="ap-toggle" data-guid="${this._escape(r.guid)}"${r.checked ? ' checked' : ''}></td><td>${this._escape(r.fullTitle)}</td><td>${this._assignStatusHtml(r)}</td></tr>`).join('') || '<tr><td colspan="3">No rows match.</td></tr>'}</tbody></table></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="ap-preview">Preview</button><button class="nm-btn" data-action="run-assign-parent"${(st.running || !st.parentGuid) ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._sharedTailHTML()}</div>`;
+        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Assign Subpages</p><p class="nm-text">Preview assign/unassign actions before applying.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Parent note</label><div class="nm-parent-search-wrap nm-input-wrap"><input class="nm-input nm-ap-parent-search" type="text" value="${this._escape(st.parentQuery)}" placeholder="Type to search parent..." title="Suggestions: ArrowDown/Up; Enter to pick; Esc to close.">${st.parentQuery ? '<button class="nm-parent-clear" data-action="ap-parent-clear" title="Clear parent">×</button>' : ''}${parentHits.length ? `<div class="nm-parent-list">${parentHits.map((r, i) => `<button type="button" class="nm-parent-opt${i === st.parentSuggestActiveIndex && st.parentSuggestActiveIndex >= 0 ? ' nm-parent-opt--active' : ''}" data-action="ap-parent-pick" data-guid="${this._escape(r.guid)}">${this._escape(r.fullTitle)}</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">Filter children</label><div class="nm-input-wrap"><input class="nm-input nm-ap-filter" type="text" value="${this._escape(st.filterText)}" placeholder="Filter by title...">${st.filterText ? '<button class="nm-parent-clear" data-action="ap-filter-clear" title="Clear filter">×</button>' : ''}</div></div></div><div class="nm-list-head"><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-all"${allVisibleChecked ? ' checked' : ''}> <span class="nm-muted">All visible</span></label><span class="nm-pill">${selectedCount} selected</span></div><div class="nm-inline"><label class="nm-inline"><input type="checkbox" class="nm-ap-hide-childof"${st.hideChildOfRows ? ' checked' : ''}> <span class="nm-muted">Hide child of:</span></label></div></div><div class="nm-table-wrap"><table class="nm-table"><thead><tr><th style="width:42px"></th><th>Title</th><th>Status</th></tr></thead><tbody>${visibleRows.map(r => `<tr><td><input type="checkbox" data-action="ap-toggle" data-guid="${this._escape(r.guid)}"${r.checked ? ' checked' : ''}></td><td>${this._escape(r.fullTitle)}</td><td>${this._assignStatusHtml(r)}</td></tr>`).join('') || '<tr><td colspan="3">No rows match.</td></tr>'}</tbody></table></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="ap-preview">Preview</button><button class="nm-btn" data-action="run-assign-parent"${(st.running || !st.parentGuid) ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
     }
 
     _buildTagRenameHTML() {
         const st = this._tagState;
         const suggestions = this._tagSuggestions().slice(0, 20);
         const advancedState = this._tagAdvancedState(st);
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Tag Rename (Quick)</p><p class="nm-text">Fast preview/apply rename flow. Advanced review remains separate.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Current tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-old" type="text" value="${this._escape(st.oldTag)}" placeholder="#current-tag" title="Cmd/Ctrl+Enter: preview. Cmd/Ctrl+Shift+Enter: apply. Suggestions: ArrowDown/Up; Enter pick; Esc close.">${st.oldTag ? '<button class="nm-parent-clear" data-action="tr-old-clear" title="Clear current tag">×</button>' : ''}${(st.oldSearchOpen && suggestions.length) ? `<div class="nm-parent-list">${suggestions.map((s, i) => `<button type="button" class="nm-parent-opt${st.suggestActiveIndex === i ? ' nm-parent-opt--active' : ''}" data-action="tr-old-pick" data-tag="${this._escape(s.tag)}">#${this._escape(s.tag)} (${s.count})</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">New tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-new" type="text" value="${this._escape(st.newTag)}" placeholder="#new-tag" title="Cmd/Ctrl+Enter: preview. Cmd/Ctrl+Shift+Enter: apply.">${st.newTag ? '<button class="nm-parent-clear" data-action="tr-new-clear" title="Clear new tag">×</button>' : ''}</div></div></div><div class="nm-inline" style="margin-bottom:8px;"><button class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div><div class="nm-adv"><div class="nm-adv-head" data-action="tr-toggle-advanced"><span class="nm-muted">${st.advancedOpen ? '▾' : '▸'} Matching options</span><span class="nm-muted">${this._escape(advancedState)}</span></div>${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-case"${st.caseSensitive ? ' checked' : ''}> <span class="nm-muted">Case-sensitive matching</span></label></div><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-exclude-choice"${st.excludeChoiceValues ? ' checked' : ''}> <span class="nm-muted">Exclude choice/enum from tag list</span></label></div>${this._buildExcludedCollectionsFieldHTML()}</div></div>` : ''}</div><div style="height:12px;"></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-preview" title="Cmd/Ctrl+Enter">Preview</button><button class="nm-btn" data-action="tr-apply"${st.running ? ' disabled' : ''} title="Cmd/Ctrl+Shift+Enter">Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._sharedTailHTML()}</div>`;
+        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Tag Rename (Quick)</p><p class="nm-text">Fast preview/apply rename flow. Advanced review remains separate.</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Current tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-old" type="text" value="${this._escape(st.oldTag)}" placeholder="#current-tag" title="Cmd/Ctrl+Enter: preview. Cmd/Ctrl+Shift+Enter: apply. Suggestions: ArrowDown/Up; Enter pick; Esc close.">${st.oldTag ? '<button class="nm-parent-clear" data-action="tr-old-clear" title="Clear current tag">×</button>' : ''}${(st.oldSearchOpen && suggestions.length) ? `<div class="nm-parent-list">${suggestions.map((s, i) => `<button type="button" class="nm-parent-opt${st.suggestActiveIndex === i ? ' nm-parent-opt--active' : ''}" data-action="tr-old-pick" data-tag="${this._escape(s.tag)}">#${this._escape(s.tag)} (${s.count})</button>`).join('')}</div>` : ''}</div></div><div class="nm-field"><label class="nm-label">New tag</label><div class="nm-input-wrap"><input class="nm-input nm-tr-new" type="text" value="${this._escape(st.newTag)}" placeholder="#new-tag" title="Cmd/Ctrl+Enter: preview. Cmd/Ctrl+Shift+Enter: apply.">${st.newTag ? '<button class="nm-parent-clear" data-action="tr-new-clear" title="Clear new tag">×</button>' : ''}</div></div></div><div class="nm-inline" style="margin-bottom:8px;"><button class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div><div class="nm-adv"><div class="nm-adv-head" data-action="tr-toggle-advanced"><span class="nm-muted">${st.advancedOpen ? '▾' : '▸'} Matching options</span><span class="nm-muted">${this._escape(advancedState)}</span></div>${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-case"${st.caseSensitive ? ' checked' : ''}> <span class="nm-muted">Case-sensitive matching</span></label></div><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-exclude-choice"${st.excludeChoiceValues ? ' checked' : ''}> <span class="nm-muted">Exclude choice/enum from tag list</span></label></div>${this._buildExcludedCollectionsFieldHTML()}</div></div>` : ''}</div><div style="height:12px;"></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="tr-preview" title="Cmd/Ctrl+Enter">Preview</button><button class="nm-btn" data-action="tr-apply"${st.running ? ' disabled' : ''} title="Cmd/Ctrl+Shift+Enter">Apply</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
     }
 
     _buildTagReviewHTML() {
@@ -433,16 +488,13 @@ ${pickerHtml}
         const hasTrace = !!(st.traceOutput && st.traceOutput.trim());
         const trace = this._escape(st.traceOutput || 'Run "Trace tag source" to inspect where the current tag is found.');
         const advancedState = this._tagAdvancedState(st);
-        const gridRows = this._reviewGridRowsForDisplay();
-        const defaultHeaderLabel = (this.cleanTag(st.reviewGridDefaultTarget || st.newTag) || 'Default').toUpperCase();
-        const reviewGridMeta = this._reviewGridMetaSummary(gridRows);
         const sub = st.tagReviewSubMode === 'remove' ? 'remove' : st.tagReviewSubMode === 'add' ? 'add' : 'grid';
-        const rtRows = this._removeTagRowsForDisplay();
-        const removeTagMeta = this._removeTagMetaSummary(rtRows);
-        const atRows = this._addTagRowsForDisplay();
-        const addTagMeta = this._addTagMetaSummary(atRows);
-        const reviewWorkflowCard = sub === 'grid'
-            ? (`<div class="nm-card nm-review-grid-output" style="margin-top:10px">
+        let reviewWorkflowCard;
+        if (sub === 'grid') {
+            const gridRows = this._reviewGridRowsForDisplay();
+            const defaultHeaderLabel = (this.cleanTag(st.reviewGridDefaultTarget || st.newTag) || 'Default').toUpperCase();
+            const reviewGridMeta = this._reviewGridMetaSummary(gridRows);
+            reviewWorkflowCard = `<div class="nm-card nm-review-grid-output" style="margin-top:10px">
 <p class="nm-title">Review Grid</p>
 <p class="nm-text">Build a queue from a source tag, then preview/apply with default target and per-row overrides.</p>
 <div class="nm-field-grid">
@@ -468,9 +520,11 @@ ${st.reviewGridDefaultTarget ? '<button class="nm-parent-clear" data-action="tr-
 <div class="nm-status">${this._escape(reviewGridMeta)}</div>
 <div class="nm-table-wrap nm-rg-wrap"><table class="nm-table nm-rg-table"><thead><tr><th>Record title</th><th>First 2 lines</th><th style="width:90px"><label class="nm-inline"><input type="checkbox" data-action="tr-rg-default-all"${gridRows.length && gridRows.every(r => r.action === 'default') ? ' checked' : ''}> <span>${this._escape(defaultHeaderLabel)}</span></label></th><th style="width:80px"><label class="nm-inline"><input type="checkbox" data-action="tr-rg-skip-all"${gridRows.length && gridRows.every(r => r.action === 'skip') ? ' checked' : ''}> <span>Skip</span></label></th><th>Override tag</th></tr></thead><tbody>${this._reviewGridTableRowsHTML(gridRows)}</tbody></table></div>
 <div class="nm-status">${this._escape(st.reviewGridOutput || '')}</div>
-</div>`)
-            : sub === 'remove'
-                ? (`<div class="nm-card nm-remove-tag-output" style="margin-top:10px">
+</div>`;
+        } else if (sub === 'remove') {
+            const rtRows = this._removeTagRowsForDisplay();
+            const removeTagMeta = this._removeTagMetaSummary(rtRows);
+            reviewWorkflowCard = `<div class="nm-card nm-remove-tag-output" style="margin-top:10px">
 <p class="nm-title">Remove tag</p>
 <p class="nm-text">Find hashtag segments, plain #tags in body text, and matching tag-like property values (same rules as trace for text fields). Choice/enum fields are not scanned; tags that only exist via choice/enum are omitted from suggestions.</p>
 <div class="nm-field-grid">
@@ -489,8 +543,11 @@ ${st.removeTagTag ? '<button class="nm-parent-clear" data-action="tr-rt-tag-clea
 <div class="nm-status">${this._escape(removeTagMeta)}</div>
 <div class="nm-table-wrap nm-rg-wrap"><table class="nm-table nm-rg-table"><thead><tr><th>Record title</th><th>First 2 lines</th><th style="width:90px"><label class="nm-inline"><input type="checkbox" data-action="tr-rt-default-all"${rtRows.length && rtRows.every(r => r.action === 'default') ? ' checked' : ''}> <span>Remove</span></label></th><th style="width:80px"><label class="nm-inline"><input type="checkbox" data-action="tr-rt-skip-all"${rtRows.length && rtRows.every(r => r.action === 'skip') ? ' checked' : ''}> <span>Skip</span></label></th></tr></thead><tbody>${this._removeTagTableRowsHTML(rtRows)}</tbody></table></div>
 <div class="nm-status">${this._escape(st.removeTagOutput || '')}</div>
-</div>`)
-                : (`<div class="nm-card nm-add-tag-output" style="margin-top:10px">
+</div>`;
+        } else {
+            const atRows = this._addTagRowsForDisplay();
+            const addTagMeta = this._addTagMetaSummary(atRows);
+            reviewWorkflowCard = `<div class="nm-card nm-add-tag-output" style="margin-top:10px">
 <p class="nm-title">Add tag</p>
 <p class="nm-text">Enter a new tag, optionally narrow by record filter (title and first lines of body). Tags already present on the note are skipped. If the record has a writable hashtag-type property (preferring one named Tags), the tag is stored there via addValue or by appending to the property’s value list (hashtag fields use the tag token without a leading #; the app shows #). Otherwise a new body line is appended at the bottom as #tag plus one trailing space.</p>
 <div class="nm-field-grid">
@@ -512,13 +569,9 @@ ${st.addTagTag ? '<button class="nm-parent-clear" data-action="tr-at-tag-clear" 
 <div class="nm-status">${this._escape(addTagMeta)}</div>
 <div class="nm-table-wrap nm-rg-wrap"><table class="nm-table nm-rg-table"><thead><tr><th>Record title</th><th>First 2 lines</th><th style="width:90px"><label class="nm-inline"><input type="checkbox" data-action="tr-at-default-all"${atRows.length && atRows.every(r => r.action === 'default') ? ' checked' : ''}> <span>Add</span></label></th><th style="width:80px"><label class="nm-inline"><input type="checkbox" data-action="tr-at-skip-all"${atRows.length && atRows.every(r => r.action === 'skip') ? ' checked' : ''}> <span>Skip</span></label></th></tr></thead><tbody>${this._addTagTableRowsHTML(atRows)}</tbody></table></div>
 <div class="nm-status">${this._escape(st.addTagOutput || '')}</div>
-</div>`);
-        return `<div class="nm-root">
-<div class="nm-header">
-<div class="nm-header-left">${this._menuHTML()}</div>
-<div class="nm-header-right"></div>
-</div>
-<div class="nm-card">
+</div>`;
+        }
+        return `${this._shellFrameOpen()}<div class="nm-card">
 <p class="nm-title">Tag trace</p>
 <p class="nm-text">Manage index scope, trace sources, and run review-grid rename workflows.</p>
 <div class="nm-field-grid">
@@ -560,38 +613,67 @@ ${hasTrace ? '<button class="nm-btn nm-btn--secondary" data-action="tr-copy-trac
 ${(!hasTrace || st.traceOpen) ? `<div class="nm-status" style="margin-top:8px;">${trace}</div>` : ''}
 </div>
 </div>
-${this._sharedTailHTML()}
-</div>`;
+${this._shellFrameClose()}`;
     }
 
+    /**
+     * Returns to the threshold/sensitivity screen. Manual clusters (and any auto clusters
+     * that were Converted to manual) are preserved alongside their target picks and
+     * per-member exclusions, so the work the user invested across re-Analyze cycles
+     * isn't silently dropped. Auto clusters are cleared because they are recomputed
+     * on the next Analyze. The id counter is preserved so newly minted manual cluster
+     * ids never collide with surviving ones.
+     */
     _tagAnalyzerClearResults() {
         const st = this._tagState;
+        const keptClusters = (st.tagAnalyzerClusters || []).filter(c => c.manual);
+        const keptIds = new Set(keptClusters.map(c => c.id));
+        const keptReplacements = {};
+        for (const [k, v] of Object.entries(st.tagAnalyzerReplacements || {})) {
+            if (keptIds.has(Number(k))) keptReplacements[k] = v;
+        }
         st.tagAnalyzerPhase = 'setup';
-        st.tagAnalyzerClusters = [];
+        st.tagAnalyzerClusters = keptClusters;
         st.tagAnalyzerOrphans = [];
-        st.tagAnalyzerOpenClusterId = null;
-        st.tagAnalyzerReplacements = {};
+        st.tagAnalyzerOpenClusterId = keptIds.has(st.tagAnalyzerOpenClusterId) ? st.tagAnalyzerOpenClusterId : null;
+        st.tagAnalyzerReplacements = keptReplacements;
         st.tagAnalyzerExportVisible = false;
         st.tagAnalyzerLastLowCount = 0;
-        st.tagAnalyzerClusterOrder = 'processed';
         st.tagAnalyzerPickFilter = '';
         st.tagAnalyzerPickSelected = [];
-        st.tagAnalyzerNextClusterId = 100000;
+        st.tagAnalyzerAddInputs = {};
+        st.tagAnalyzerAddPickerOpenId = null;
+        st.tagAnalyzerAddPickerFilter = '';
+        st.tagAnalyzerAddPickerSelected = [];
     }
 
+    /**
+     * Two-row Levenshtein DP over precomputed lowercased strings. The previous full m×n matrix
+     * allocated O(mn) memory per pair; this allocates O(min(m,n)) and reuses two arrays per call.
+     */
     _tagAnalyzerLevenshtein(a, b) {
-        const m = a.length;
+        if (a === b) return 0;
+        if (!a) return b.length;
+        if (!b) return a.length;
+        // Iterate over the longer string to keep the inner row small.
+        if (a.length < b.length) { const tmp = a; a = b; b = tmp; }
         const n = b.length;
-        const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-        for (let i = 0; i <= m; i++) dp[i][0] = i;
-        for (let j = 0; j <= n; j++) dp[0][j] = j;
-        for (let i = 1; i <= m; i++) {
+        let prev = new Array(n + 1);
+        let curr = new Array(n + 1);
+        for (let j = 0; j <= n; j++) prev[j] = j;
+        for (let i = 1; i <= a.length; i++) {
+            curr[0] = i;
+            const ai = a.charCodeAt(i - 1);
             for (let j = 1; j <= n; j++) {
-                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-                dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+                const cost = ai === b.charCodeAt(j - 1) ? 0 : 1;
+                const del = prev[j] + 1;
+                const ins = curr[j - 1] + 1;
+                const sub = prev[j - 1] + cost;
+                curr[j] = del < ins ? (del < sub ? del : sub) : (ins < sub ? ins : sub);
             }
+            const tmp = prev; prev = curr; curr = tmp;
         }
-        return dp[m][n];
+        return prev[n];
     }
 
     _tagAnalyzerTokenize(tag) {
@@ -602,35 +684,53 @@ ${this._sharedTailHTML()}
             .filter(Boolean);
     }
 
-    _tagAnalyzerJaccardTokens(a, b) {
-        const sa = new Set(this._tagAnalyzerTokenize(a));
-        const sb = new Set(this._tagAnalyzerTokenize(b));
-        const inter = [...sa].filter(x => sb.has(x)).length;
-        const union = new Set([...sa, ...sb]).size;
-        return union === 0 ? 0 : inter / union;
+    /** Builds {lower, tokens, len} for each tag once so similarity lookups never re-tokenize. */
+    _tagAnalyzerBuildSignatures(tags) {
+        const map = new Map();
+        for (const t of tags) {
+            const name = t.name;
+            if (map.has(name)) continue;
+            const lower = name.toLowerCase();
+            map.set(name, { lower, tokens: new Set(this._tagAnalyzerTokenize(name)), len: lower.length });
+        }
+        return map;
     }
 
+    _tagAnalyzerSimilarityFromSig(sigA, sigB) {
+        const maxLen = sigA.len > sigB.len ? sigA.len : sigB.len;
+        const levSim = maxLen === 0 ? 1 : 1 - this._tagAnalyzerLevenshtein(sigA.lower, sigB.lower) / maxLen;
+        let inter = 0;
+        const small = sigA.tokens.size <= sigB.tokens.size ? sigA.tokens : sigB.tokens;
+        const large = small === sigA.tokens ? sigB.tokens : sigA.tokens;
+        for (const tok of small) if (large.has(tok)) inter += 1;
+        const union = sigA.tokens.size + sigB.tokens.size - inter;
+        const jacSim = union === 0 ? 0 : inter / union;
+        const bonus = (sigA.lower.includes(sigB.lower) || sigB.lower.includes(sigA.lower)) ? 0.3 : 0;
+        const sim = (levSim > jacSim ? levSim : jacSim) + bonus;
+        return sim > 1 ? 1 : sim;
+    }
+
+    /** Backwards-compatible API for any external caller — internal clustering uses signatures. */
     _tagAnalyzerSimilarity(a, b) {
-        const aStr = String(a ?? '');
-        const bStr = String(b ?? '');
-        const maxLen = Math.max(aStr.length, bStr.length);
-        const levSim = maxLen === 0 ? 1 : 1 - this._tagAnalyzerLevenshtein(aStr.toLowerCase(), bStr.toLowerCase()) / maxLen;
-        const jacSim = this._tagAnalyzerJaccardTokens(aStr, bStr);
-        const al = aStr.toLowerCase();
-        const bl = bStr.toLowerCase();
-        const bonus = al.includes(bl) || bl.includes(al) ? 0.3 : 0;
-        return Math.min(1, Math.max(levSim, jacSim) + bonus);
+        const sigA = { lower: String(a ?? '').toLowerCase(), tokens: new Set(this._tagAnalyzerTokenize(a)), len: String(a ?? '').length };
+        const sigB = { lower: String(b ?? '').toLowerCase(), tokens: new Set(this._tagAnalyzerTokenize(b)), len: String(b ?? '').length };
+        return this._tagAnalyzerSimilarityFromSig(sigA, sigB);
     }
 
     _tagAnalyzerBuildClusters(lowTags, allTags, simThreshold) {
         const result = [];
         const assigned = new Set();
+        const sigs = this._tagAnalyzerBuildSignatures(allTags);
         for (const lt of lowTags) {
             if (assigned.has(lt.name)) continue;
             const members = [lt];
+            const ltSig = sigs.get(lt.name);
+            if (!ltSig) continue;
             for (const c of allTags) {
                 if (c.name === lt.name || assigned.has(c.name)) continue;
-                if (this._tagAnalyzerSimilarity(lt.name, c.name) >= simThreshold) members.push(c);
+                const cSig = sigs.get(c.name);
+                if (!cSig) continue;
+                if (this._tagAnalyzerSimilarityFromSig(ltSig, cSig) >= simThreshold) members.push(c);
             }
             if (members.length > 1) {
                 members.forEach(m => assigned.add(m.name));
@@ -641,6 +741,7 @@ ${this._sharedTailHTML()}
                     suggestedReplacement: best.name,
                     totalCount: members.reduce((s, m) => s + (m.count || 0), 0),
                     omitFromExport: false,
+                    excludedMembers: [],
                     manual: false,
                 });
             }
@@ -666,28 +767,66 @@ ${this._sharedTailHTML()}
         const clustered = new Set(autoClusters.flatMap(c => c.members.map(m => m.name)));
         const orphans = lowTags.filter(t => !clustered.has(t.name));
         const prevManual = (st.tagAnalyzerClusters || []).filter(c => c.manual);
+        const prevManualIds = new Set(prevManual.map(c => c.id));
+        const keptReplacements = {};
+        for (const [k, v] of Object.entries(st.tagAnalyzerReplacements || {})) {
+            if (prevManualIds.has(Number(k))) keptReplacements[k] = v;
+        }
         st.tagAnalyzerClusters = [...autoClusters, ...prevManual];
         st.tagAnalyzerOrphans = orphans;
-        st.tagAnalyzerReplacements = {};
-        st.tagAnalyzerOpenClusterId = null;
+        st.tagAnalyzerReplacements = keptReplacements;
+        st.tagAnalyzerOpenClusterId = prevManualIds.has(st.tagAnalyzerOpenClusterId) ? st.tagAnalyzerOpenClusterId : null;
         st.tagAnalyzerExportVisible = false;
         st.tagAnalyzerLastLowCount = lowTags.length;
         st.tagAnalyzerPhase = 'results';
         this._logRow('tag-analyzer', 'applied', { recordGuid: '', recordName: '' }, `Low-use ≤${threshold}: ${lowTags.length}; clusters: ${st.tagAnalyzerClusters.length}; orphans: ${orphans.length}; similarity ${simPct}%`);
     }
 
+    /** Members of `c` that have not been excluded by per-pill ×. */
+    _tagAnalyzerActiveMembers(c) {
+        const excluded = new Set(c.excludedMembers || []);
+        return (c.members || []).filter(m => !excluded.has(m.name));
+    }
+
+    /**
+     * Resolves the cluster's effective replacement target. Honors a user-typed custom
+     * target (a non-member name) verbatim. If the picked target is a member that has
+     * been excluded — or is missing/blank — falls back to the highest-count active
+     * member (matching the rule used at cluster construction).
+     */
+    _tagAnalyzerEffectiveReplacement(c, active) {
+        const st = this._tagState;
+        const activeMembers = active || this._tagAnalyzerActiveMembers(c);
+        const activeNames = new Set(activeMembers.map(m => m.name));
+        const raw = st.tagAnalyzerReplacements[c.id];
+        const picked = raw !== undefined ? String(raw).trim() : '';
+        if (picked) {
+            const isMember = c.members.some(m => m.name === picked);
+            if (!isMember) return picked;
+            if (activeNames.has(picked)) return picked;
+        }
+        if (!activeMembers.length) return c.suggestedReplacement;
+        if (activeNames.has(c.suggestedReplacement)) return c.suggestedReplacement;
+        return activeMembers.reduce((a, b) => ((b.count || 0) > (a.count || 0) ? b : a)).name;
+    }
+
     _tagAnalyzerExportPlanJson() {
         const st = this._tagState;
         const clusters = this._tagAnalyzerSortedClusters(st).filter(c => !c.omitFromExport);
-        return clusters.map(c => {
-            const raw = st.tagAnalyzerReplacements[c.id];
-            const replacement = raw !== undefined && String(raw).trim() !== '' ? String(raw).trim() : c.suggestedReplacement;
-            return {
+        const out = [];
+        for (const c of clusters) {
+            const active = this._tagAnalyzerActiveMembers(c);
+            if (active.length < 2) continue;
+            const replacement = this._tagAnalyzerEffectiveReplacement(c, active);
+            const merging = active.map(m => m.name).filter(n => n !== replacement);
+            if (!merging.length) continue;
+            out.push({
                 replacement,
-                merging: c.members.map(m => m.name).filter(n => n !== replacement),
-                combinedCount: c.totalCount,
-            };
-        });
+                merging,
+                combinedCount: active.reduce((s, m) => s + (m.count || 0), 0),
+            });
+        }
+        return out;
     }
 
     /** Display text for export panel only (metadata lines + JSON). Save/Copy use `_tagAnalyzerExportPlanJson()` alone. */
@@ -697,6 +836,80 @@ ${this._sharedTailHTML()}
         const clusterCount = plan.length;
         const jsonLines = body.split(/\r?\n/).length;
         return `Clusters in export: ${clusterCount}\nJSON lines: ${jsonLines}\n\n${body}`;
+    }
+
+    /**
+     * Resolves a tag name against the current tag index. Returns the canonical
+     * (case-preserved) name and count if found, otherwise `null`. Matching uses
+     * the same `matchKey` rule as the rest of the tag tooling so the lookup
+     * respects the `caseSensitive` matching option.
+     */
+    _tagAnalyzerLookupIndexedTag(name) {
+        const st = this._tagState;
+        const cleaned = this.cleanTag(name);
+        if (!cleaned) return null;
+        const idx = Array.isArray(st.tagIndex) ? st.tagIndex : [];
+        const target = this.matchKey(cleaned, st.caseSensitive);
+        for (const e of idx) {
+            const t = String(e.tag ?? '').trim();
+            if (!t) continue;
+            if (this.matchKey(t, st.caseSensitive) === target) return { name: t, count: Number(e.count) || 0 };
+        }
+        return null;
+    }
+
+    /**
+     * Returns up to `limit` tag-index entries that match `query` (substring match,
+     * case-insensitive) and are NOT already members of `cluster`. Sorted by usage
+     * count (desc) so the most-used candidates surface first. When `query` is
+     * empty an empty list is returned (the picker is the discovery UI; the
+     * inline suggest only fires once the user starts typing).
+     */
+    _tagAnalyzerAddSuggestForCluster(cluster, query, limit = 6) {
+        const st = this._tagState;
+        const q = String(query || '').trim().replace(/^#+/, '').toLowerCase();
+        if (!q) return [];
+        const idx = Array.isArray(st.tagIndex) ? st.tagIndex : [];
+        const memberKeys = new Set((cluster.members || []).map(m => this.matchKey(m.name, st.caseSensitive)));
+        const out = [];
+        for (const e of idx) {
+            const t = String(e.tag ?? '').trim();
+            if (!t) continue;
+            if (memberKeys.has(this.matchKey(t, st.caseSensitive))) continue;
+            if (!t.toLowerCase().includes(q)) continue;
+            out.push({ name: t, count: Number(e.count) || 0 });
+        }
+        out.sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+        return out.slice(0, limit);
+    }
+
+    /**
+     * Adds a tag (resolved through the index) to a manual cluster. Returns one of:
+     *   { ok: true, status: 'added' }    — newly inserted member
+     *   { ok: true, status: 'restored' } — already a member but in `excludedMembers`; un-excluded
+     *   { ok: false, reason: 'duplicate' }    — already an active member
+     *   { ok: false, reason: 'not-manual' }   — refused on auto clusters
+     *   { ok: false, reason: 'not-in-index' } — input did not resolve to any indexed tag
+     */
+    _tagAnalyzerAddTagToCluster(cluster, rawName) {
+        if (!cluster) return { ok: false, reason: 'not-in-index' };
+        if (!cluster.manual) return { ok: false, reason: 'not-manual' };
+        const hit = this._tagAnalyzerLookupIndexedTag(rawName);
+        if (!hit) return { ok: false, reason: 'not-in-index' };
+        if (!Array.isArray(cluster.excludedMembers)) cluster.excludedMembers = [];
+        const existing = (cluster.members || []).find(m => m.name === hit.name);
+        if (existing) {
+            if (cluster.excludedMembers.includes(hit.name)) {
+                cluster.excludedMembers = cluster.excludedMembers.filter(n => n !== hit.name);
+                existing.count = hit.count;
+                cluster.totalCount = (cluster.members || []).reduce((s, m) => s + (m.count || 0), 0);
+                return { ok: true, status: 'restored' };
+            }
+            return { ok: false, reason: 'duplicate' };
+        }
+        cluster.members.push({ name: hit.name, count: hit.count });
+        cluster.totalCount = cluster.members.reduce((s, m) => s + (m.count || 0), 0);
+        return { ok: true, status: 'added' };
     }
 
     _tagAnalyzerSortedClusters(st) {
@@ -755,6 +968,61 @@ ${this._sharedTailHTML()}
         return `<div class="nm-card" style="margin-top:12px;"><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-toggle-manual" style="margin-bottom:${open ? '8px' : '0'};display:flex;align-items:center;gap:8px;"><span>${open ? '▾' : '▸'}</span><span>Add manual cluster</span></button>${body}</div>`;
     }
 
+    /**
+     * Renders the per-cluster "+ Add tag" inline input + suggestions and the
+     * "Add tags…" bulk picker for a manual cluster. Returns '' for auto clusters
+     * (the cluster header already exposes a "Convert to manual" button — once
+     * converted, this UI shows up automatically).
+     */
+    _tagAnalyzerAddMembersUIHTML(c) {
+        if (!c.manual) return '';
+        const st = this._tagState;
+        const inputVal = (st.tagAnalyzerAddInputs && st.tagAnalyzerAddInputs[c.id] !== undefined)
+            ? String(st.tagAnalyzerAddInputs[c.id])
+            : '';
+        const suggestions = this._tagAnalyzerAddSuggestForCluster(c, inputVal, 6);
+        const suggestHTML = suggestions.length
+            ? `<div class="nm-ta-add-suggest">${suggestions.map(s => `<button type="button" class="nm-ta-add-suggest-pill" data-action="ta-add-suggest" data-id="${c.id}" data-tag="${encodeURIComponent(s.name)}" title="Add #${this._escape(s.name)} to this cluster"><span class="nm-muted">#</span>${this._escape(s.name)} <span class="nm-muted">(${s.count})</span></button>`).join('')}</div>`
+            : (inputVal.trim() ? '<div class="nm-muted" style="font-size:11px;margin-top:4px;">No matching tags in the index that aren\u2019t already members.</div>' : '');
+        const pickerOpen = st.tagAnalyzerAddPickerOpenId === c.id;
+        const memberKeys = new Set((c.members || []).map(m => this.matchKey(m.name, st.caseSensitive)));
+        const idx = Array.isArray(st.tagIndex) ? st.tagIndex : [];
+        const pickerQ = (st.tagAnalyzerAddPickerFilter || '').toLowerCase().trim();
+        const pickerSelected = new Set(st.tagAnalyzerAddPickerSelected || []);
+        const candidates = pickerOpen
+            ? idx.filter(e => {
+                const t = String(e.tag ?? '').trim();
+                if (!t) return false;
+                if (memberKeys.has(this.matchKey(t, st.caseSensitive))) return false;
+                return !pickerQ || t.toLowerCase().includes(pickerQ);
+            })
+            : [];
+        const candidatesSlice = candidates.slice(0, 80);
+        const inSlice = new Set(candidatesSlice.map(e => String(e.tag ?? '').trim()));
+        const hiddenPicked = pickerOpen ? [...pickerSelected].filter(t => !inSlice.has(t)) : [];
+        const byName = pickerOpen ? new Map(idx.map(e => [String(e.tag ?? '').trim(), e])) : new Map();
+        const rowFor = (t, count) => {
+            const on = pickerSelected.has(t);
+            return `<label class="nm-inline" style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--cards-border-color);cursor:pointer;width:100%;box-sizing:border-box"><input type="checkbox" class="nm-ta-add-picker-cb" data-cluster-id="${c.id}" data-tag="${encodeURIComponent(t)}"${on ? ' checked' : ''}><span><span class="nm-muted">#</span>${this._escape(t)}</span><span class="nm-muted" style="margin-left:auto">${count}</span></label>`;
+        };
+        const pickerRows = pickerOpen
+            ? (
+                (hiddenPicked.length ? `<div class="nm-muted" style="font-size:11px;padding:4px 0">Selected (outside current filter)</div>${hiddenPicked.map(t => { const e = byName.get(t); return rowFor(t, e ? Number(e.count) || 0 : 0); }).join('')}` : '')
+                + candidatesSlice.map(e => rowFor(String(e.tag ?? '').trim(), Number(e.count) || 0)).join('')
+            )
+            : '';
+        const pickerSelLine = pickerOpen
+            ? (pickerSelected.size
+                ? `<p class="nm-muted" style="margin:6px 0;font-size:12px;">Selected (${pickerSelected.size}): ${[...pickerSelected].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(t => `#${this._escape(t)}`).join(', ')}</p>`
+                : '<p class="nm-muted" style="margin:6px 0;font-size:12px;">Tick at least one tag.</p>')
+            : '';
+        const pickerBlock = pickerOpen
+            ? `<div class="nm-ta-add-picker"><div class="nm-field" style="margin:0"><label class="nm-label">Filter tags</label><input class="nm-input nm-ta-add-picker-filter" type="text" data-cluster-id="${c.id}" value="${this._escape(st.tagAnalyzerAddPickerFilter || '')}" placeholder="Substring…"></div>${pickerSelLine}<div class="nm-table-wrap" style="max-height:200px;margin-top:6px">${pickerRows || '<p class="nm-muted" style="padding:8px">No tags match.</p>'}</div><div class="nm-inline" style="margin-top:8px;gap:8px;"><button type="button" class="nm-btn" data-action="ta-add-picker-apply" data-id="${c.id}"${pickerSelected.size ? '' : ' disabled'}>Add selected</button><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-add-picker-cancel" data-id="${c.id}">Close</button></div></div>`
+            : '';
+        const pickerBtnLabel = pickerOpen ? 'Close picker' : 'Add tags…';
+        return `<div class="nm-ta-add-row"><div class="nm-ta-add-input-wrap"><input class="nm-input nm-ta-add-input" type="text" data-cluster-id="${c.id}" value="${this._escape(inputVal)}" placeholder="Add a tag from the index…" autocomplete="off"><button type="button" class="nm-btn nm-btn--secondary nm-ta-add-btn" data-action="ta-add-from-input" data-id="${c.id}"${inputVal.trim() ? '' : ' disabled'}>+ Add</button><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-add-picker-toggle" data-id="${c.id}">${pickerBtnLabel}</button></div>${suggestHTML}${pickerBlock}</div>`;
+    }
+
     _tagAnalyzerClusterBlocksHTML() {
         const st = this._tagState;
         const clusters = this._tagAnalyzerSortedClusters(st);
@@ -762,16 +1030,41 @@ ${this._sharedTailHTML()}
             return '<p class="nm-muted">No clusters found. Try lowering similarity (looser matches) or raising the usage threshold.</p>';
         }
         return clusters.map(c => {
-            const repl = st.tagAnalyzerReplacements[c.id] !== undefined ? String(st.tagAnalyzerReplacements[c.id]) : c.suggestedReplacement;
-            const replNorm = String(repl).trim();
+            const excluded = new Set(c.excludedMembers || []);
+            const activeMembers = (c.members || []).filter(m => !excluded.has(m.name));
+            const effectiveTarget = this._tagAnalyzerEffectiveReplacement(c, activeMembers);
+            const rawRepl = st.tagAnalyzerReplacements[c.id];
+            const replInputValue = rawRepl !== undefined ? String(rawRepl) : c.suggestedReplacement;
+            const targetForOnHighlight = String(effectiveTarget).trim();
             const open = st.tagAnalyzerOpenClusterId === c.id;
             const pills = c.members.map(m => {
-                const on = m.name === replNorm;
-                return `<button type="button" class="nm-ta-pill${on ? ' nm-ta-pill--on' : ''}" data-action="ta-pick-replacement" data-id="${c.id}" data-tag="${encodeURIComponent(m.name)}"><span class="nm-muted">#</span>${this._escape(m.name)} <span class="nm-muted">(${m.count})</span></button>`;
+                const isExcluded = excluded.has(m.name);
+                const on = !isExcluded && m.name === targetForOnHighlight;
+                const wrapClasses = ['nm-ta-mpill'];
+                if (on) wrapClasses.push('nm-ta-mpill--on');
+                if (isExcluded) wrapClasses.push('nm-ta-mpill--excluded');
+                const tagAttr = encodeURIComponent(m.name);
+                const xLabel = isExcluded ? '↺' : '×';
+                const xAction = isExcluded ? 'ta-restore-member' : 'ta-exclude-member';
+                const xTitle = isExcluded ? 'Restore this tag to the cluster' : 'Exclude this tag from this cluster';
+                return `<span class="${wrapClasses.join(' ')}"><button type="button" class="nm-ta-mpill-text" data-action="ta-pick-replacement" data-id="${c.id}" data-tag="${tagAttr}" title="Pick as target tag"><span class="nm-muted">#</span>${this._escape(m.name)} <span class="nm-muted">(${m.count})</span></button><button type="button" class="nm-ta-mpill-x" data-action="${xAction}" data-id="${c.id}" data-tag="${tagAttr}" title="${xTitle}" aria-label="${xTitle}">${xLabel}</button></span>`;
             }).join('');
-            const manualBadge = c.manual ? '<span class="nm-muted" style="font-size:11px;margin-right:6px">Manual</span>' : '';
+            const manualBadge = c.manual
+                ? '<span class="nm-muted" style="font-size:11px;margin-right:6px">Manual</span>'
+                : `<button type="button" class="nm-ta-convert-manual" data-action="ta-convert-manual" data-id="${c.id}" title="Convert this auto cluster to a manual cluster so edits persist across re-analyze">Convert to manual</button>`;
             const omitChecked = c.omitFromExport ? ' checked' : '';
-            return `<div class="nm-ta-cluster${open ? ' nm-ta-cluster--open' : ''}"><div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:6px 10px;border-bottom:1px solid var(--cards-border-color);flex-wrap:wrap">${manualBadge}<label class="nm-inline" style="margin:0"><input type="checkbox" class="nm-ta-omit-cb" data-cluster-id="${c.id}"${omitChecked}><span class="nm-muted">Omit from export</span></label></div><div class="nm-ta-cluster-head" data-action="ta-toggle-cluster" data-id="${c.id}"><span class="nm-muted" style="flex-shrink:0">${open ? '▲' : '▼'}</span><span style="flex:1;min-width:0">${this._escape(c.members.map(m => m.name).join(', '))}</span><span class="nm-muted" style="flex-shrink:0">${c.members.length} tags → 1</span></div><div class="nm-ta-cluster-detail${open ? ' nm-ta-cluster-detail--open' : ''}"><p class="nm-muted" style="margin:8px 0 4px;">Members — click a tag or edit the target name.</p><div class="nm-ta-pills">${pills}</div><div class="nm-field" style="margin-top:8px;"><label class="nm-label">Target tag</label><input class="nm-input nm-ta-target-input" type="text" data-cluster-id="${c.id}" value="${this._escape(repl)}"></div><p class="nm-muted" style="margin-top:8px;">Combined record count: <strong>${c.totalCount}</strong></p></div></div>`;
+            const totalActiveCount = activeMembers.reduce((s, m) => s + (m.count || 0), 0);
+            const headerCount = excluded.size > 0
+                ? `${activeMembers.length}/${c.members.length} active → 1`
+                : `${c.members.length} tags → 1`;
+            const skipNote = (activeMembers.length < 2 && !c.omitFromExport)
+                ? '<span class="nm-ta-cluster-warn">Skipped in export — fewer than 2 active members</span>'
+                : '';
+            const detailExcludedNote = excluded.size > 0
+                ? `<p class="nm-muted" style="margin-top:4px;font-size:11px;">Excluded (${excluded.size}): ${[...excluded].map(n => `#${this._escape(n)}`).join(', ')}</p>`
+                : '';
+            const addMembersHTML = open ? this._tagAnalyzerAddMembersUIHTML(c) : '';
+            return `<div class="nm-ta-cluster${open ? ' nm-ta-cluster--open' : ''}"><div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:6px 10px;border-bottom:1px solid var(--cards-border-color);flex-wrap:wrap">${manualBadge}<label class="nm-inline" style="margin:0"><input type="checkbox" class="nm-ta-omit-cb" data-cluster-id="${c.id}"${omitChecked}><span class="nm-muted">Omit from export</span></label></div><div class="nm-ta-cluster-head" data-action="ta-toggle-cluster" data-id="${c.id}"><span class="nm-muted" style="flex-shrink:0">${open ? '▲' : '▼'}</span><span style="flex:1;min-width:0">${this._escape(c.members.map(m => m.name).join(', '))}</span><span class="nm-muted" style="flex-shrink:0">${headerCount}${skipNote}</span></div><div class="nm-ta-cluster-detail${open ? ' nm-ta-cluster-detail--open' : ''}"><p class="nm-muted" style="margin:8px 0 4px;">Members — click a tag to pick it as the target, or × to exclude it from this cluster.</p><div class="nm-ta-pills">${pills}</div>${detailExcludedNote}${addMembersHTML}<div class="nm-field" style="margin-top:8px;"><label class="nm-label">Target tag</label><input class="nm-input nm-ta-target-input" type="text" data-cluster-id="${c.id}" value="${this._escape(replInputValue)}"></div><p class="nm-muted" style="margin-top:8px;">Combined record count: <strong>${totalActiveCount}</strong>${excluded.size > 0 ? ` <span class="nm-muted">(of ${c.totalCount} total)</span>` : ''}</p></div></div>`;
         }).join('');
     }
 
@@ -1112,7 +1405,7 @@ ${this._sharedTailHTML()}
         const outBlock = m.output.trim()
             ? `<div class="nm-card" style="margin-top:12px;"><p class="nm-title" style="font-size:13px;">Output</p><pre class="nm-ta-export-pre" style="max-height:220px">${this._escape(m.output)}</pre></div>`
             : '';
-        return `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Tag merge</p><p class="nm-text">Load a <strong>tag-consolidation-plan</strong> JSON array (objects with <code>replacement</code>, <code>merging</code>, <code>combinedCount</code> only). Each <code>merging</code> entry becomes one row. Use <strong>Skip</strong> to exclude a row from preview/apply. Preview and apply use the same scan logic as Tag rename (quick).</p><p class="nm-muted" style="margin-top:6px;">Index scope: ${this._escape(adv)}</p><div class="nm-inline" style="margin:12px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><button type="button" class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div><div class="nm-adv"><div class="nm-adv-head" data-action="tr-toggle-advanced"><span class="nm-muted">${st.advancedOpen ? '▾' : '▸'} Matching options</span><span class="nm-muted">${this._escape(adv)}</span></div>${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-case"${st.caseSensitive ? ' checked' : ''}> <span class="nm-muted">Case-sensitive matching</span></label></div><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-exclude-choice"${st.excludeChoiceValues ? ' checked' : ''}> <span class="nm-muted">Exclude choice/enum from tag list</span></label></div>${this._buildExcludedCollectionsFieldHTML()}</div></div>` : ''}</div><div class="nm-inline" style="gap:8px;flex-wrap:wrap;margin-top:8px"><input type="file" class="nm-tm-file" accept=".json,application/json" hidden><button type="button" class="nm-btn" data-action="tm-choose-file">Load consolidation plan…</button>${m.rows.length ? `<button type="button" class="nm-btn nm-btn--secondary" data-action="tm-clear-plan">Clear plan</button><span class="nm-muted" style="font-size:12px">${this._escape(m.fileName || 'loaded')}</span>` : ''}</div>${parseBlock}${this._tagMergeClusterSummaryHtml()}<div class="nm-status">${this._escape(gridMeta)}</div>${table}<div class="nm-actions" style="margin-top:12px;"><button type="button" class="nm-btn nm-btn--secondary"${runDisabled} data-action="tm-preview">Preview</button><button type="button" class="nm-btn"${runDisabled} data-action="tm-apply">Apply</button></div>${outBlock}</div><div class="nm-actions"><button type="button" class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${this._sharedTailHTML()}</div>`;
+        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Tag merge</p><p class="nm-text">Load a <strong>tag-consolidation-plan</strong> JSON array (objects with <code>replacement</code>, <code>merging</code>, <code>combinedCount</code> only). Each <code>merging</code> entry becomes one row. Use <strong>Skip</strong> to exclude a row from preview/apply. Preview and apply use the same scan logic as Tag rename (quick).</p><p class="nm-muted" style="margin-top:6px;">Index scope: ${this._escape(adv)}</p><div class="nm-inline" style="margin:12px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><button type="button" class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div><div class="nm-adv"><div class="nm-adv-head" data-action="tr-toggle-advanced"><span class="nm-muted">${st.advancedOpen ? '▾' : '▸'} Matching options</span><span class="nm-muted">${this._escape(adv)}</span></div>${st.advancedOpen ? `<div class="nm-adv-body"><div class="nm-field-grid"><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-case"${st.caseSensitive ? ' checked' : ''}> <span class="nm-muted">Case-sensitive matching</span></label></div><div class="nm-field"><label class="nm-inline"><input type="checkbox" class="nm-tr-exclude-choice"${st.excludeChoiceValues ? ' checked' : ''}> <span class="nm-muted">Exclude choice/enum from tag list</span></label></div>${this._buildExcludedCollectionsFieldHTML()}</div></div>` : ''}</div><div class="nm-inline" style="gap:8px;flex-wrap:wrap;margin-top:8px"><input type="file" class="nm-tm-file" accept=".json,application/json" hidden><button type="button" class="nm-btn" data-action="tm-choose-file">Load consolidation plan…</button>${m.rows.length ? `<button type="button" class="nm-btn nm-btn--secondary" data-action="tm-clear-plan">Clear plan</button><span class="nm-muted" style="font-size:12px">${this._escape(m.fileName || 'loaded')}</span>` : ''}</div>${parseBlock}${this._tagMergeClusterSummaryHtml()}<div class="nm-status">${this._escape(gridMeta)}</div>${table}<div class="nm-actions" style="margin-top:12px;"><button type="button" class="nm-btn nm-btn--secondary"${runDisabled} data-action="tm-preview">Preview</button><button type="button" class="nm-btn"${runDisabled} data-action="tm-apply">Apply</button></div>${outBlock}</div><div class="nm-actions"><button type="button" class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${this._shellFrameClose()}`;
     }
 
     _buildTagAnalyzerHTML() {
@@ -1126,7 +1419,7 @@ ${this._sharedTailHTML()}
         const lowSetup = allTags.filter(t => t.count <= th);
         const highSetup = allTags.filter(t => t.count > th);
         const total = allTags.length;
-        const head = `<div class="nm-root"><div class="nm-header"><div class="nm-header-left">${this._menuHTML()}</div><div class="nm-header-right"></div></div><div class="nm-card"><p class="nm-title">Tag analyzer</p><p class="nm-text">Find merge candidates from your tag index: low-use tags seed clusters; similar tags (spelling, tokens, or substring overlap) group together. Adjust scope with <strong>Matching options</strong> on Tag rename or Tag review, then <strong>Refresh index</strong>.</p><p class="nm-muted" style="margin-top:6px;">Index scope: ${this._escape(adv)}</p><div class="nm-inline" style="margin:12px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><button type="button" class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div>`;
+        const head = `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Tag analyzer</p><p class="nm-text">Find merge candidates from your tag index: low-use tags seed clusters; similar tags (spelling, tokens, or substring overlap) group together. Adjust scope with <strong>Matching options</strong> on Tag rename or Tag review, then <strong>Refresh index</strong>.</p><p class="nm-muted" style="margin-top:6px;">Index scope: ${this._escape(adv)}</p><div class="nm-inline" style="margin:12px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><button type="button" class="nm-btn nm-btn--secondary" data-action="tr-refresh-index">Refresh index</button><span class="nm-muted">${this._escape(st.indexMeta)}</span></div>`;
 
         if (st.tagAnalyzerPhase !== 'results') {
             const statSetup = total
@@ -1135,7 +1428,7 @@ ${this._sharedTailHTML()}
             const controls = `<div class="nm-field-grid" style="margin-top:12px;"><div class="nm-field"><label class="nm-label" for="nm-ta-th">Usage threshold ≤ ${th}</label><input id="nm-ta-th" class="nm-ta-range nm-ta-threshold-range" type="range" min="1" max="${maxCount}" value="${th}"><p class="nm-muted" style="margin-top:4px;font-size:12px;">Tags with this many uses or fewer are candidates for clustering.</p></div><div class="nm-field"><label class="nm-label" for="nm-ta-sim">Similarity sensitivity: ${simPct}%</label><input id="nm-ta-sim" class="nm-ta-range nm-ta-sim-range" type="range" min="15" max="70" value="${simPct}"><p class="nm-muted" style="margin-top:4px;font-size:12px;">Lower = looser matches. Higher = stricter (same idea as the standalone Tag Triage tool).</p></div></div>`;
             const analyzeDisabled = !total ? ' disabled' : '';
             const body = `${statSetup}${controls}<div class="nm-actions" style="margin-top:12px;"><button type="button" class="nm-btn"${analyzeDisabled} data-action="ta-analyze">Analyze &amp; find clusters</button></div>`;
-            return `${head}${body}</div><div class="nm-actions"><button type="button" class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${this._sharedTailHTML()}</div>`;
+            return `${head}${body}</div><div class="nm-actions"><button type="button" class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${this._shellFrameClose()}`;
         }
 
         const clusters = st.tagAnalyzerClusters || [];
@@ -1156,28 +1449,50 @@ ${this._sharedTailHTML()}
         const exportToggleLabel = st.tagAnalyzerExportVisible ? 'Close export JSON' : 'Show export JSON';
         const jumpOrphansDisabled = orphans.length ? '' : ' disabled';
         const resBody = `<button type="button" class="nm-btn nm-btn--secondary" data-action="ta-back-analyzer" style="margin-bottom:10px;">← Change threshold / sensitivity</button>${statsRes}<div class="nm-actions" style="margin:8px 0 10px;"><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-jump-export">Jump to export JSON</button><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-jump-orphans"${jumpOrphansDisabled}>Jump to orphan tags</button></div><p class="nm-title" style="margin-top:8px;font-size:14px;">Consolidation clusters</p>${clusterHtml}${orphanBlock}<div class="nm-actions" style="margin-top:12px;"><button type="button" class="nm-btn nm-btn--secondary" data-action="ta-export-plan">${exportToggleLabel}</button></div>${exportBlock}`;
-        return `${head}${resBody}</div><div class="nm-actions"><button type="button" class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${this._sharedTailHTML()}</div>`;
+        return `${head}${resBody}</div><div class="nm-actions"><button type="button" class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${this._shellFrameClose()}`;
+    }
+
+    /**
+     * Coalesces rapid filter / range typing into a single render. State mutations stay synchronous
+     * so values are correct in the next render — only the costly innerHTML rewrite is deferred.
+     * Any explicit `_render()` cancels the pending debounced one.
+     */
+    _scheduleDebouncedRender(ms = 120) {
+        if (this._renderDebounceTimer) clearTimeout(this._renderDebounceTimer);
+        this._renderDebounceTimer = setTimeout(() => {
+            this._renderDebounceTimer = null;
+            if (this._panel) this._render(this._panel);
+        }, ms);
     }
 
     _render(panel) {
         const el = panel.getElement();
         if (!el) return;
+        if (this._renderDebounceTimer) {
+            clearTimeout(this._renderDebounceTimer);
+            this._renderDebounceTimer = null;
+        }
         const focusState = this._captureFocusState(el);
         const scrollState = this._captureScrollState(el);
-        let html = '';
-        if (this._mode === 'bulk-move') html = this._buildBulkMoveHTML();
-        else if (this._mode === 'assign-parent') html = this._buildAssignParentHTML();
-        else if (this._mode === 'tag-rename') html = this._buildTagRenameHTML();
-        else if (this._mode === 'tag-review') html = this._buildTagReviewHTML();
-        else if (this._mode === 'tag-analyzer') html = this._buildTagAnalyzerHTML();
-        else if (this._mode === 'tag-merge') html = this._buildTagMergeHTML();
-        else html = this._buildHomeHTML();
-        el.innerHTML = html;
-        if (this._listenerAbort) this._listenerAbort.abort();
-        this._listenerAbort = new AbortController();
-        this._attachListeners(el, this._listenerAbort.signal);
-        this._restoreFocusState(el, focusState);
-        this._restoreScrollState(el, scrollState);
+        this._displayRowsCache = {};
+        try {
+            let html = '';
+            if (this._mode === 'bulk-move') html = this._buildBulkMoveHTML();
+            else if (this._mode === 'assign-parent') html = this._buildAssignParentHTML();
+            else if (this._mode === 'tag-rename') html = this._buildTagRenameHTML();
+            else if (this._mode === 'tag-review') html = this._buildTagReviewHTML();
+            else if (this._mode === 'tag-analyzer') html = this._buildTagAnalyzerHTML();
+            else if (this._mode === 'tag-merge') html = this._buildTagMergeHTML();
+            else html = this._buildHomeHTML();
+            el.innerHTML = html;
+            if (this._listenerAbort) this._listenerAbort.abort();
+            this._listenerAbort = new AbortController();
+            this._attachListeners(el, this._listenerAbort.signal);
+            this._restoreFocusState(el, focusState);
+            this._restoreScrollState(el, scrollState);
+        } finally {
+            this._displayRowsCache = null;
+        }
     }
 
     _attachListeners(el, signal) {
@@ -1534,8 +1849,151 @@ ${this._sharedTailHTML()}
                         tname = '';
                     }
                     if (!Number.isFinite(rid) || !tname) break;
+                    const cl = this._tagState.tagAnalyzerClusters.find(c => c.id === rid);
+                    if (cl && Array.isArray(cl.excludedMembers) && cl.excludedMembers.includes(tname)) {
+                        cl.excludedMembers = cl.excludedMembers.filter(n => n !== tname);
+                    }
                     this._tagState.tagAnalyzerReplacements[rid] = tname;
                     this._tagState.tagAnalyzerOpenClusterId = rid;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'ta-exclude-member':
+                case 'ta-restore-member': {
+                    const rid = Number(target.dataset.id);
+                    let tname = '';
+                    try {
+                        tname = decodeURIComponent(target.dataset.tag || '');
+                    } catch (_) {
+                        tname = '';
+                    }
+                    if (!Number.isFinite(rid) || !tname) break;
+                    const cl = this._tagState.tagAnalyzerClusters.find(c => c.id === rid);
+                    if (!cl) break;
+                    if (!Array.isArray(cl.excludedMembers)) cl.excludedMembers = [];
+                    const isMember = cl.members.some(m => m.name === tname);
+                    if (!isMember) break;
+                    if (action === 'ta-exclude-member') {
+                        if (!cl.excludedMembers.includes(tname)) cl.excludedMembers.push(tname);
+                        const rawRepl = this._tagState.tagAnalyzerReplacements[cl.id];
+                        const pickedNorm = rawRepl !== undefined ? String(rawRepl).trim() : '';
+                        if (pickedNorm === tname) {
+                            const active = cl.members.filter(m => !cl.excludedMembers.includes(m.name));
+                            if (active.length) {
+                                const next = active.reduce((a, b) => ((b.count || 0) > (a.count || 0) ? b : a)).name;
+                                this._tagState.tagAnalyzerReplacements[cl.id] = next;
+                            } else {
+                                delete this._tagState.tagAnalyzerReplacements[cl.id];
+                            }
+                        }
+                    } else {
+                        cl.excludedMembers = cl.excludedMembers.filter(n => n !== tname);
+                    }
+                    this._tagState.tagAnalyzerOpenClusterId = cl.id;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'ta-convert-manual': {
+                    const rid = Number(target.dataset.id);
+                    if (!Number.isFinite(rid)) break;
+                    const st = this._tagState;
+                    const cl = st.tagAnalyzerClusters.find(c => c.id === rid);
+                    if (!cl || cl.manual) break;
+                    const newId = ++st.tagAnalyzerNextClusterId;
+                    if (Object.prototype.hasOwnProperty.call(st.tagAnalyzerReplacements, cl.id)) {
+                        st.tagAnalyzerReplacements[newId] = st.tagAnalyzerReplacements[cl.id];
+                        delete st.tagAnalyzerReplacements[cl.id];
+                    }
+                    if (st.tagAnalyzerOpenClusterId === cl.id) st.tagAnalyzerOpenClusterId = newId;
+                    cl.id = newId;
+                    cl.manual = true;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'ta-add-from-input':
+                case 'ta-add-suggest': {
+                    const rid = Number(target.dataset.id);
+                    if (!Number.isFinite(rid)) break;
+                    const st = this._tagState;
+                    const cl = st.tagAnalyzerClusters.find(c => c.id === rid);
+                    if (!cl) break;
+                    let candidate = '';
+                    if (action === 'ta-add-suggest') {
+                        try { candidate = decodeURIComponent(target.dataset.tag || ''); } catch (_) { candidate = ''; }
+                    } else {
+                        candidate = String((st.tagAnalyzerAddInputs && st.tagAnalyzerAddInputs[cl.id]) || '').trim();
+                    }
+                    if (!candidate) break;
+                    const result = this._tagAnalyzerAddTagToCluster(cl, candidate);
+                    if (result.ok) {
+                        if (st.tagAnalyzerAddInputs) st.tagAnalyzerAddInputs[cl.id] = '';
+                        st.tagAnalyzerOpenClusterId = cl.id;
+                        const verb = result.status === 'restored' ? 'restored' : 'added';
+                        this._toast('Tag analyzer', `Cluster ${cl.id}: #${candidate} ${verb}.`, 2200);
+                    } else if (result.reason === 'duplicate') {
+                        this._toast('Tag analyzer', `#${candidate} is already a member of this cluster.`, 2800);
+                    } else if (result.reason === 'not-manual') {
+                        this._toast('Tag analyzer', 'Convert this auto cluster to manual first to add tags.', 3500);
+                    } else {
+                        this._toast('Tag analyzer', `#${candidate} is not in the tag index. Refresh the index or check spelling.`, 3500);
+                    }
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'ta-add-picker-toggle': {
+                    const rid = Number(target.dataset.id);
+                    if (!Number.isFinite(rid)) break;
+                    const st = this._tagState;
+                    if (st.tagAnalyzerAddPickerOpenId === rid) {
+                        st.tagAnalyzerAddPickerOpenId = null;
+                        st.tagAnalyzerAddPickerFilter = '';
+                        st.tagAnalyzerAddPickerSelected = [];
+                    } else {
+                        st.tagAnalyzerAddPickerOpenId = rid;
+                        st.tagAnalyzerAddPickerFilter = '';
+                        st.tagAnalyzerAddPickerSelected = [];
+                        st.tagAnalyzerOpenClusterId = rid;
+                    }
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'ta-add-picker-cancel': {
+                    const st = this._tagState;
+                    st.tagAnalyzerAddPickerOpenId = null;
+                    st.tagAnalyzerAddPickerFilter = '';
+                    st.tagAnalyzerAddPickerSelected = [];
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'ta-add-picker-apply': {
+                    const rid = Number(target.dataset.id);
+                    if (!Number.isFinite(rid)) break;
+                    const st = this._tagState;
+                    const cl = st.tagAnalyzerClusters.find(c => c.id === rid);
+                    if (!cl) break;
+                    const selected = [...(st.tagAnalyzerAddPickerSelected || [])];
+                    let added = 0;
+                    let restored = 0;
+                    let skippedDup = 0;
+                    let skippedMissing = 0;
+                    for (const name of selected) {
+                        const r = this._tagAnalyzerAddTagToCluster(cl, name);
+                        if (r.ok) {
+                            if (r.status === 'restored') restored += 1;
+                            else added += 1;
+                        } else if (r.reason === 'duplicate') skippedDup += 1;
+                        else if (r.reason === 'not-in-index') skippedMissing += 1;
+                    }
+                    st.tagAnalyzerAddPickerOpenId = null;
+                    st.tagAnalyzerAddPickerFilter = '';
+                    st.tagAnalyzerAddPickerSelected = [];
+                    st.tagAnalyzerOpenClusterId = cl.id;
+                    const parts = [];
+                    if (added) parts.push(`${added} added`);
+                    if (restored) parts.push(`${restored} restored`);
+                    if (skippedDup) parts.push(`${skippedDup} already member`);
+                    if (skippedMissing) parts.push(`${skippedMissing} not in index`);
+                    this._toast('Tag analyzer', `Cluster ${cl.id}: ${parts.length ? parts.join(', ') : 'no changes'}.`, 2800);
                     if (this._panel) this._render(this._panel);
                     break;
                 }
@@ -1574,6 +2032,7 @@ ${this._sharedTailHTML()}
                         suggestedReplacement: best.name,
                         totalCount: members.reduce((s, m) => s + (m.count || 0), 0),
                         omitFromExport: false,
+                        excludedMembers: [],
                         manual: true,
                     });
                     st.tagAnalyzerPickSelected = [];
@@ -1660,7 +2119,7 @@ ${this._sharedTailHTML()}
         const bmOnly = el.querySelector('.nm-bm-only-selected');
         if (bmOnly) bmOnly.addEventListener('change', () => { this._bulkMoveState.onlySelected = !!bmOnly.checked; this._settings.bulkOnlySelectedDefault = !!bmOnly.checked; this._saveSettings(); this._applyBulkMoveFilter(); if (this._panel) this._render(this._panel); }, { signal });
         const bmFilter = el.querySelector('.nm-bm-filter');
-        if (bmFilter) bmFilter.addEventListener('input', () => { this._bulkMoveState.filterText = bmFilter.value; this._applyBulkMoveFilter(); if (this._panel) this._render(this._panel); }, { signal });
+        if (bmFilter) bmFilter.addEventListener('input', () => { this._bulkMoveState.filterText = bmFilter.value; this._applyBulkMoveFilter(); this._scheduleDebouncedRender(); }, { signal });
 
         const apParent = el.querySelector('.nm-ap-parent-search');
         if (apParent) {
@@ -1712,7 +2171,7 @@ ${this._sharedTailHTML()}
             }, { signal });
         }
         const apFilter = el.querySelector('.nm-ap-filter');
-        if (apFilter) apFilter.addEventListener('input', () => { this._assignState.filterText = apFilter.value; if (this._panel) this._render(this._panel); }, { signal });
+        if (apFilter) apFilter.addEventListener('input', () => { this._assignState.filterText = apFilter.value; this._scheduleDebouncedRender(); }, { signal });
         const apAll = el.querySelector('.nm-ap-all');
         if (apAll) apAll.addEventListener('change', () => { for (const row of this._assignState.rows) if (this._assignRowVisible(row)) row.checked = !!apAll.checked; if (this._panel) this._render(this._panel); }, { signal });
         const apHide = el.querySelector('.nm-ap-hide-childof');
@@ -1817,7 +2276,7 @@ ${this._sharedTailHTML()}
         if (trExcludePickerFilter) {
             trExcludePickerFilter.addEventListener('input', () => {
                 this._tagState.excludedPickerFilter = trExcludePickerFilter.value;
-                if (this._panel) this._render(this._panel);
+                this._scheduleDebouncedRender();
             }, { signal });
         }
         el.querySelectorAll('.nm-tr-exclude-col-cb').forEach(cb => {
@@ -1898,7 +2357,7 @@ ${this._sharedTailHTML()}
             }, { signal });
         }
         const rgFilter = el.querySelector('.nm-rg-filter');
-        if (rgFilter) rgFilter.addEventListener('input', () => { this._tagState.reviewGridFilter = rgFilter.value; if (this._panel) this._render(this._panel); }, { signal });
+        if (rgFilter) rgFilter.addEventListener('input', () => { this._tagState.reviewGridFilter = rgFilter.value; this._scheduleDebouncedRender(); }, { signal });
         const rgSort = el.querySelector('.nm-rg-sort');
         if (rgSort) rgSort.addEventListener('change', () => { this._tagState.reviewGridSort = rgSort.value; if (this._panel) this._render(this._panel); }, { signal });
         const rtTag = el.querySelector('.nm-rt-tag');
@@ -1938,7 +2397,7 @@ ${this._sharedTailHTML()}
             }, { signal });
         }
         const rtFilter = el.querySelector('.nm-rt-filter');
-        if (rtFilter) rtFilter.addEventListener('input', () => { this._tagState.removeTagFilter = rtFilter.value; if (this._panel) this._render(this._panel); }, { signal });
+        if (rtFilter) rtFilter.addEventListener('input', () => { this._tagState.removeTagFilter = rtFilter.value; this._scheduleDebouncedRender(); }, { signal });
         const rtSort = el.querySelector('.nm-rt-sort');
         if (rtSort) rtSort.addEventListener('change', () => { this._tagState.removeTagSort = rtSort.value; if (this._panel) this._render(this._panel); }, { signal });
         const atTag = el.querySelector('.nm-at-tag');
@@ -1960,17 +2419,17 @@ ${this._sharedTailHTML()}
             }, { signal });
         }
         const atRecFilter = el.querySelector('.nm-at-record-filter');
-        if (atRecFilter) atRecFilter.addEventListener('input', () => { this._tagState.addTagRecordFilter = atRecFilter.value; if (this._panel) this._render(this._panel); }, { signal });
+        if (atRecFilter) atRecFilter.addEventListener('input', () => { this._tagState.addTagRecordFilter = atRecFilter.value; this._scheduleDebouncedRender(); }, { signal });
         const atTableFilter = el.querySelector('.nm-at-table-filter');
-        if (atTableFilter) atTableFilter.addEventListener('input', () => { this._tagState.addTagTableFilter = atTableFilter.value; if (this._panel) this._render(this._panel); }, { signal });
+        if (atTableFilter) atTableFilter.addEventListener('input', () => { this._tagState.addTagTableFilter = atTableFilter.value; this._scheduleDebouncedRender(); }, { signal });
         const atSort = el.querySelector('.nm-at-sort');
         if (atSort) atSort.addEventListener('change', () => { this._tagState.addTagSort = atSort.value; if (this._panel) this._render(this._panel); }, { signal });
         const taTh = el.querySelector('.nm-ta-threshold-range');
-        if (taTh) taTh.addEventListener('input', () => { this._tagState.tagAnalyzerThreshold = Number(taTh.value) || 1; if (this._panel) this._render(this._panel); }, { signal });
+        if (taTh) taTh.addEventListener('input', () => { this._tagState.tagAnalyzerThreshold = Number(taTh.value) || 1; this._scheduleDebouncedRender(); }, { signal });
         const taSim = el.querySelector('.nm-ta-sim-range');
-        if (taSim) taSim.addEventListener('input', () => { this._tagState.tagAnalyzerSimPercent = Number(taSim.value) || 35; if (this._panel) this._render(this._panel); }, { signal });
+        if (taSim) taSim.addEventListener('input', () => { this._tagState.tagAnalyzerSimPercent = Number(taSim.value) || 35; this._scheduleDebouncedRender(); }, { signal });
         const taManFilter = el.querySelector('.nm-ta-manual-filter');
-        if (taManFilter) taManFilter.addEventListener('input', () => { this._tagState.tagAnalyzerPickFilter = taManFilter.value; if (this._panel) this._render(this._panel); }, { signal });
+        if (taManFilter) taManFilter.addEventListener('input', () => { this._tagState.tagAnalyzerPickFilter = taManFilter.value; this._scheduleDebouncedRender(); }, { signal });
         const tmFile = el.querySelector('.nm-tm-file');
         if (tmFile) {
             tmFile.addEventListener('change', async () => {
@@ -2011,6 +2470,18 @@ ${this._sharedTailHTML()}
                 if (this._panel) this._render(this._panel);
                 return;
             }
+            const addPick = e.target.closest('.nm-ta-add-picker-cb');
+            if (addPick) {
+                let tname = '';
+                try { tname = decodeURIComponent(addPick.dataset.tag || ''); } catch (_) { tname = ''; }
+                if (!tname) return;
+                const set = new Set(this._tagState.tagAnalyzerAddPickerSelected || []);
+                if (addPick.checked) set.add(tname);
+                else set.delete(tname);
+                this._tagState.tagAnalyzerAddPickerSelected = [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+                if (this._panel) this._render(this._panel);
+                return;
+            }
             const man = e.target.closest('.nm-ta-manual-cb');
             if (!man) return;
             let tname = '';
@@ -2028,10 +2499,67 @@ ${this._sharedTailHTML()}
         }, { signal });
         el.addEventListener('input', e => {
             const cin = e.target.closest('.nm-ta-target-input');
-            if (!cin) return;
-            const cid = Number(cin.dataset.clusterId);
+            if (cin) {
+                const cid = Number(cin.dataset.clusterId);
+                if (!Number.isFinite(cid)) return;
+                this._tagState.tagAnalyzerReplacements[cid] = cin.value;
+                return;
+            }
+            const addIn = e.target.closest('.nm-ta-add-input');
+            if (addIn) {
+                const cid = Number(addIn.dataset.clusterId);
+                if (!Number.isFinite(cid)) return;
+                if (!this._tagState.tagAnalyzerAddInputs) this._tagState.tagAnalyzerAddInputs = {};
+                this._tagState.tagAnalyzerAddInputs[cid] = addIn.value;
+                this._scheduleDebouncedRender();
+                return;
+            }
+            const addPickFilter = e.target.closest('.nm-ta-add-picker-filter');
+            if (addPickFilter) {
+                this._tagState.tagAnalyzerAddPickerFilter = addPickFilter.value;
+                this._scheduleDebouncedRender();
+                return;
+            }
+        }, { signal });
+        el.addEventListener('keydown', e => {
+            const addIn = e.target.closest('.nm-ta-add-input');
+            if (!addIn) return;
+            const cid = Number(addIn.dataset.clusterId);
             if (!Number.isFinite(cid)) return;
-            this._tagState.tagAnalyzerReplacements[cid] = cin.value;
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const st = this._tagState;
+                if (!st.tagAnalyzerAddInputs) st.tagAnalyzerAddInputs = {};
+                st.tagAnalyzerAddInputs[cid] = addIn.value;
+                const cl = st.tagAnalyzerClusters.find(c => c.id === cid);
+                if (!cl) return;
+                const typed = String(addIn.value || '').trim();
+                if (!typed) return;
+                let candidate = typed;
+                if (!this._tagAnalyzerLookupIndexedTag(typed)) {
+                    const sug = this._tagAnalyzerAddSuggestForCluster(cl, typed, 1);
+                    if (sug.length) candidate = sug[0].name;
+                }
+                const result = this._tagAnalyzerAddTagToCluster(cl, candidate);
+                if (result.ok) {
+                    st.tagAnalyzerAddInputs[cl.id] = '';
+                    st.tagAnalyzerOpenClusterId = cl.id;
+                    const verb = result.status === 'restored' ? 'restored' : 'added';
+                    this._toast('Tag analyzer', `Cluster ${cl.id}: #${candidate} ${verb}.`, 2200);
+                } else if (result.reason === 'duplicate') {
+                    this._toast('Tag analyzer', `#${candidate} is already a member of this cluster.`, 2800);
+                } else if (result.reason === 'not-manual') {
+                    this._toast('Tag analyzer', 'Convert this auto cluster to manual first to add tags.', 3500);
+                } else {
+                    this._toast('Tag analyzer', `#${candidate} is not in the tag index. Refresh the index or check spelling.`, 3500);
+                }
+                if (this._panel) this._render(this._panel);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                if (!this._tagState.tagAnalyzerAddInputs) this._tagState.tagAnalyzerAddInputs = {};
+                this._tagState.tagAnalyzerAddInputs[cid] = '';
+                if (this._panel) this._render(this._panel);
+            }
         }, { signal });
         el.querySelectorAll('.nm-rg-override-wrap').forEach(wrap => {
             const input = wrap.querySelector('.nm-rg-row-target');
@@ -2579,7 +3107,20 @@ ${this._sharedTailHTML()}
                 const scanOpts = this._tagScanOpts();
                 const scope = await this.getScannableCollections(scanOpts);
                 const tagToRecordGuids = new Map();
+                // Tags reachable when choice/enum sources are excluded — used to derive `tagChoiceOnlyTags`
+                // without a second full scan (each scan does getLineItems(true) per record, which is expensive).
+                const needBoth = !scanOpts.excludeChoiceValues;
+                const tagsWithoutChoiceSources = needBoth ? new Set() : null;
                 const stats = await this.forEachScannableRecord(scanOpts, async (record) => {
+                    if (needBoth) {
+                        const { withChoice, withoutChoice } = await this.collectTagsFromRecordWithChoiceVariants(record);
+                        for (const tag of withChoice) {
+                            if (!tagToRecordGuids.has(tag)) tagToRecordGuids.set(tag, new Set());
+                            tagToRecordGuids.get(tag).add(record.guid);
+                        }
+                        for (const t of withoutChoice) tagsWithoutChoiceSources.add(t);
+                        return;
+                    }
                     const tagsInRecord = await this.collectTagsFromRecord(record, scanOpts);
                     for (const tag of tagsInRecord) {
                         if (!tagToRecordGuids.has(tag)) tagToRecordGuids.set(tag, new Set());
@@ -2590,14 +3131,11 @@ ${this._sharedTailHTML()}
                     .map(([tag, guidSet]) => ({ tag: String(tag ?? '').trim(), count: guidSet.size }))
                     .filter(e => e.tag);
                 st.tagIndex = this._sortTagIndexEntries(built);
-                const tagsWithoutChoiceSources = new Set();
-                await this.forEachScannableRecord(scanOpts, async (record) => {
-                    const tset = await this.collectTagsFromRecord(record, { ...scanOpts, excludeChoiceValues: true });
-                    for (const t of tset) tagsWithoutChoiceSources.add(t);
-                }, scope.collections);
                 const choiceOnly = new Set();
-                for (const tag of tagToRecordGuids.keys()) {
-                    if (!tagsWithoutChoiceSources.has(tag)) choiceOnly.add(tag);
+                if (tagsWithoutChoiceSources) {
+                    for (const tag of tagToRecordGuids.keys()) {
+                        if (!tagsWithoutChoiceSources.has(tag)) choiceOnly.add(tag);
+                    }
                 }
                 st.tagChoiceOnlyTags = choiceOnly;
                 const choiceNote = scanOpts.excludeChoiceValues ? ' (choice/enum excluded)' : '';
@@ -2713,6 +3251,7 @@ ${this._sharedTailHTML()}
     }
 
     _reviewGridRowsForDisplay() {
+        if (this._displayRowsCache && this._displayRowsCache.reviewGrid) return this._displayRowsCache.reviewGrid;
         const st = this._tagState;
         const filter = (st.reviewGridFilter || '').toLowerCase().trim();
         let rows = [...(st.reviewGridRows || [])];
@@ -2727,6 +3266,7 @@ ${this._sharedTailHTML()}
             'tag-group': (a, b) => this._compareTagNamesForSort(this.cleanTag(a.sourceTag || ''), this.cleanTag(b.sourceTag || '')) || (a.recordName || '').localeCompare(b.recordName || ''),
         }[st.reviewGridSort || 'title-asc'];
         if (cmp) rows.sort(cmp);
+        if (this._displayRowsCache) this._displayRowsCache.reviewGrid = rows;
         return rows;
     }
 
@@ -3191,14 +3731,25 @@ ${this._sharedTailHTML()}
         if (this._panel) this._render(this._panel);
         const defaultSource = this.cleanTag(st.reviewGridSourceTag || st.oldTag);
         const defaultTarget = this.cleanTag(st.reviewGridDefaultTarget || st.newTag);
-        const perRecordTargets = new Map();
+        // Group by record guid → Map<sourceTag, Set<targetTag>> so each scanned record does one
+        // O(1) lookup instead of iterating the whole rowsToApply list (was O(records × rows)).
+        const targetsByGuid = new Map();
         for (const row of plan.rowsToApply) {
             const src = this.cleanTag(row.sourceTag || defaultSource);
             const tgt = this.cleanTag((row.action === 'override' ? row.overrideTarget : '') || defaultTarget);
             if (!src || !tgt) continue;
-            const key = `${row.recordGuid}|${src}`;
-            if (!perRecordTargets.has(key)) perRecordTargets.set(key, new Set());
-            perRecordTargets.get(key).add(tgt);
+            const guidKey = row.recordGuid || '';
+            let bySrc = targetsByGuid.get(guidKey);
+            if (!bySrc) {
+                bySrc = new Map();
+                targetsByGuid.set(guidKey, bySrc);
+            }
+            let targets = bySrc.get(src);
+            if (!targets) {
+                targets = new Set();
+                bySrc.set(src, targets);
+            }
+            targets.add(tgt);
         }
         const appliedGuids = new Set();
         let skippedConflicts = 0;
@@ -3208,15 +3759,12 @@ ${this._sharedTailHTML()}
         try {
             await this.forEachScannableRecord(opts, async (record) => {
                 const guid = record?.guid || '';
-                for (const [mapKey, targets] of perRecordTargets.entries()) {
-                    const pipeIdx = mapKey.indexOf('|');
-                    if (pipeIdx < 0) continue;
-                    const g = mapKey.slice(0, pipeIdx);
-                    const src = mapKey.slice(pipeIdx + 1);
-                    if (g !== guid) continue;
+                const bySrc = targetsByGuid.get(guid);
+                if (!bySrc) return;
+                for (const [src, targets] of bySrc.entries()) {
                     if (!targets || !targets.size) continue;
                     if (targets.size > 1) { skippedConflicts += 1; continue; }
-                    const target = [...targets][0];
+                    const target = targets.values().next().value;
                     try {
                         const changed = await this._renameTagInRecord({ record, oldTag: src, newTag: target, caseSensitive: st.caseSensitive, dryRun: false, collectRows: null });
                         if (changed.recordChanged) appliedGuids.add(guid);
@@ -3550,6 +4098,7 @@ ${this._sharedTailHTML()}
     }
 
     _addTagRowsForDisplay() {
+        if (this._displayRowsCache && this._displayRowsCache.addTag) return this._displayRowsCache.addTag;
         const st = this._tagState;
         const filter = (st.addTagTableFilter || '').toLowerCase().trim();
         let rows = [...(st.addTagRows || [])];
@@ -3563,6 +4112,7 @@ ${this._sharedTailHTML()}
             'source-desc': (a, b) => (b.source || '').localeCompare(a.source || ''),
         }[st.addTagSort || 'title-asc'];
         if (cmp) rows.sort(cmp);
+        if (this._displayRowsCache) this._displayRowsCache.addTag = rows;
         return rows;
     }
 
@@ -3813,6 +4363,7 @@ ${this._sharedTailHTML()}
     }
 
     _removeTagRowsForDisplay() {
+        if (this._displayRowsCache && this._displayRowsCache.removeTag) return this._displayRowsCache.removeTag;
         const st = this._tagState;
         const filter = (st.removeTagFilter || '').toLowerCase().trim();
         let rows = [...(st.removeTagRows || [])];
@@ -3826,6 +4377,7 @@ ${this._sharedTailHTML()}
             'source-desc': (a, b) => (b.source || '').localeCompare(a.source || ''),
         }[st.removeTagSort || 'title-asc'];
         if (cmp) rows.sort(cmp);
+        if (this._displayRowsCache) this._displayRowsCache.removeTag = rows;
         return rows;
     }
 
@@ -4059,10 +4611,10 @@ ${this._sharedTailHTML()}
                 if (!seg || seg.type !== 'text') continue;
                 const rawText = this.segmentTextAsString(seg);
                 const occ = hit.textOccurrenceIndex ?? 0;
-                const { changed } = this._removeNthHashtagTokenFromText(rawText, tagClean, caseSensitive, occ);
+                const { changed, text: nextSegText } = this._removeNthHashtagTokenFromText(rawText, tagClean, caseSensitive, occ);
                 if (!changed) continue;
                 let next = this._cloneLineItemSegments(segments);
-                next[si] = { ...next[si], text };
+                next[si] = { ...next[si], text: nextSegText };
                 next = this._pruneEmptyTextSegments(this._mergeAdjacentTextSegments(next));
                 if (this._lineItemSegmentsDisplayEmpty(next)) {
                     if (typeof item.delete === 'function') {
@@ -4248,7 +4800,17 @@ ${this._sharedTailHTML()}
         if (!list.length) return false;
         const name = (collection.getName?.() || '').toLowerCase();
         const guid = collection.getGuid?.() || '';
-        return list.some(v => v.toLowerCase() === name || v === guid);
+        // Cache lowercased token list per options object so a many-collection scan doesn't re-lowercase per check.
+        let lowered = opts.__excludedCollectionsLower;
+        if (!Array.isArray(lowered) || lowered.length !== list.length) {
+            lowered = list.map(v => String(v || '').toLowerCase());
+            try { opts.__excludedCollectionsLower = lowered; } catch (_) {}
+        }
+        for (let i = 0; i < list.length; i++) {
+            if (lowered[i] === name) return true;
+            if (list[i] === guid) return true;
+        }
+        return false;
     }
 
     async forEachScannableRecord(scanOpts, onRecord, preResolvedCollections) {
@@ -4261,6 +4823,86 @@ ${this._sharedTailHTML()}
             for (const record of records) await onRecord(record, collection);
         }
         return { recordCount };
+    }
+
+    /**
+     * Single walk over `record.getLineItems(true)` + `record.getAllProperties()` returning both
+     * `withChoice` and `withoutChoice` tag sets. Used by `_refreshTagIndex` to avoid scanning each
+     * record twice (once per `excludeChoiceValues` setting).
+     */
+    async collectTagsFromRecordWithChoiceVariants(record) {
+        const withChoice = new Set();
+        const withoutChoice = new Set();
+        const lineItems = await record.getLineItems(true);
+        for (const item of lineItems) {
+            const segments = item?.segments;
+            if (!Array.isArray(segments)) continue;
+            for (const seg of segments) {
+                if (seg?.type === THYMER_TYPE_HASHTAG) {
+                    const tag = this.cleanTag(this.segmentTextAsString(seg));
+                    if (this.isUsableTagCandidate(tag)) {
+                        withChoice.add(tag);
+                        withoutChoice.add(tag);
+                    }
+                    continue;
+                }
+                const segText = this.segmentTextAsString(seg);
+                if (seg?.type === 'text' && segText) {
+                    for (const t of this.extractHashtagTokensFromText(segText)) {
+                        if (!this.isUsableTagCandidate(t)) continue;
+                        withChoice.add(t);
+                        withoutChoice.add(t);
+                    }
+                }
+            }
+        }
+        const properties = record.getAllProperties?.() || [];
+        for (const prop of properties) {
+            try {
+                const choicesList = typeof prop.choices === 'function' ? prop.choices() : null;
+                const hasArrayChoices = Array.isArray(choicesList);
+                if (!hasArrayChoices) {
+                    const labels = prop.selectedChoiceLabels?.() ?? [];
+                    const ids = prop.selectedChoices?.() ?? [];
+                    const n = Math.max(labels.length, ids.length);
+                    for (let i = 0; i < n; i++) {
+                        const labelTag = this.tagCandidateFromPropertyValue(labels[i] ?? '');
+                        const idTag = this.tagCandidateFromPropertyValue(ids[i] != null ? String(ids[i]) : '');
+                        if (labelTag) withChoice.add(labelTag);
+                        if (idTag && this.matchKey(idTag, false) !== this.matchKey(labelTag || '', false)) withChoice.add(idTag);
+                    }
+                } else {
+                    const labels = prop.selectedChoiceLabels?.() ?? [];
+                    const ids = prop.selectedChoices?.() ?? [];
+                    const n = Math.max(labels.length, ids.length);
+                    for (let i = 0; i < n; i++) {
+                        const labelTag = this.tagCandidateFromPropertyValue(labels[i] ?? '');
+                        const idTag = this.tagCandidateFromPropertyValue(ids[i] != null ? String(ids[i]) : '');
+                        if (labelTag) withChoice.add(labelTag);
+                        if (idTag && this.matchKey(idTag, false) !== this.matchKey(labelTag || '', false)) withChoice.add(idTag);
+                    }
+                }
+                if (!this.shouldScanTextPropertyForTags(prop)) continue;
+                const labelEnumSuppressed = this._shouldSuppressTextLikeTagsFromExcludedLabelEnum(prop, { excludeChoiceValues: true });
+                for (const value of (prop.texts?.() || [])) {
+                    const tag = this.tagCandidateFromPropertyValue(value);
+                    if (!tag) continue;
+                    withChoice.add(tag);
+                    if (!hasArrayChoices && !labelEnumSuppressed) withoutChoice.add(tag);
+                }
+                const rawValues = prop.values?.();
+                if (Array.isArray(rawValues)) {
+                    for (const value of rawValues) {
+                        if (typeof value !== 'string') continue;
+                        const tag = this.tagCandidateFromPropertyValue(value);
+                        if (!tag) continue;
+                        withChoice.add(tag);
+                        if (!hasArrayChoices && !labelEnumSuppressed) withoutChoice.add(tag);
+                    }
+                }
+            } catch (_) {}
+        }
+        return { withChoice, withoutChoice };
     }
 
     async collectTagsFromRecord(record, scanOpts) {
@@ -4852,7 +5494,7 @@ ${this._sharedTailHTML()}
     _captureFocusState(rootEl) {
         const active = document.activeElement;
         if (!(active instanceof HTMLInputElement) || !rootEl.contains(active)) return null;
-        const known = ['.nm-bm-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-tr-exclude-picker-filter', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter', '.nm-rt-tag', '.nm-rt-filter', '.nm-at-tag', '.nm-at-record-filter', '.nm-at-table-filter', '.nm-ta-target-input'];
+        const known = ['.nm-bm-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-tr-exclude-picker-filter', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter', '.nm-rt-tag', '.nm-rt-filter', '.nm-at-tag', '.nm-at-record-filter', '.nm-at-table-filter', '.nm-ta-target-input', '.nm-ta-add-input', '.nm-ta-add-picker-filter'];
         const selector = known.find(sel => active.matches(sel));
         if (!selector) return null;
         return { selector, selectionStart: active.selectionStart, selectionEnd: active.selectionEnd };
