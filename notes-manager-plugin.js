@@ -1,7 +1,7 @@
 /** @see thymerapp/thymer-plugin-sdk types.d.ts PROP_TYPE_HASHTAG, PLUGIN_LINE_ITEM_SEGMENT_TYPE_HASHTAG */
 const THYMER_TYPE_HASHTAG = 'hashtag';
 
-const NOTES_MANAGER_VERSION = '1.0.7';
+const NOTES_MANAGER_VERSION = '1.0.6';
 
 class NotesManagerPanel {
     constructor(plugin) {
