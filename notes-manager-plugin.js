@@ -1,7 +1,14 @@
 /** @see thymerapp/thymer-plugin-sdk types.d.ts PROP_TYPE_HASHTAG, PLUGIN_LINE_ITEM_SEGMENT_TYPE_HASHTAG */
 const THYMER_TYPE_HASHTAG = 'hashtag';
 
-const NOTES_MANAGER_VERSION = '1.0.6';
+const NOTES_MANAGER_VERSION = '1.0.11';
+
+/** Max characters of body text indexed per record for Home quick search (performance). */
+const NM_HOME_SEARCH_BODY_MAX = 16000;
+/** Max rows per section on Home (notes-only list, or each of notes / tags / collections in “everywhere”). */
+const NM_HOME_SEARCH_MAX_ROWS = 25;
+/** Notes-only quick search: max hits kept in memory for paging (exact total is still counted past this). */
+const NM_HOME_SEARCH_MAX_STORED_NOTE_HITS = 500;
 
 class NotesManagerPanel {
     constructor(plugin) {
@@ -15,6 +22,27 @@ class NotesManagerPanel {
         // start of _render(), cleared to null at the end so click handlers between renders
         // never see stale filtered/sorted snapshots after state mutations.
         this._displayRowsCache = null;
+        this._homeSearchTimer = null;
+        this._helpDialogOpen = false;
+        this._homeSearch = {
+            query: '',
+            results: [],
+            /** Notes-only: up to NM_HOME_SEARCH_MAX_STORED_NOTE_HITS rows for paging; see notesTotalMatches. */
+            notesHits: [],
+            notesTotalMatches: 0,
+            notesHitsStorageCapped: false,
+            notesPageOffset: 0,
+            resultsNotes: [],
+            resultsTags: [],
+            resultsCollections: [],
+            running: false,
+            capped: false,
+            cappedNotes: false,
+            cappedTags: false,
+            cappedCollections: false,
+            scanned: 0,
+            runId: 0,
+        };
 
         this._settingsKey = 'notes-manager-settings-v1';
         this._settings = {
@@ -25,6 +53,8 @@ class NotesManagerPanel {
             tagExcludeChoiceValuesDefault: false,
             tagExcludedCollectionsDefault: '',
             reviewLogCollapsed: true,
+            /** When true, Home quick search also lists matching tags and collections (three sections). */
+            homeSearchEverywhere: false,
         };
 
         this._activityLog = [];
@@ -157,6 +187,7 @@ class NotesManagerPanel {
             '.nm-dropdown{position:absolute;top:calc(100% + 6px);left:0;background:var(--input-bg-color);border:1px solid var(--input-border-color);border-radius:var(--ed-radius-block);padding:4px;min-width:220px;z-index:100;box-shadow:0 4px 20px rgba(0,0,0,.35)}' +
             '.nm-dropdown-item{display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;color:inherit;font-size:14px;padding:10px 14px;border-radius:var(--ed-radius-normal);transition:background .1s,color .1s}' +
             '.nm-dropdown-item:hover{background:var(--ed-button-primary-bg);color:var(--ed-button-primary-text)}' +
+            '.nm-dropdown-divider{border:none;border-top:1px solid var(--cards-border-color);margin:6px 0;opacity:.6}' +
             '.nm-card{padding:14px;background:var(--cards-bg);border:1px solid var(--cards-border-color);border-radius:var(--ed-radius-block);box-shadow:var(--color-shadow-cards);margin-bottom:12px}' +
             '.nm-title{font-size:14px;font-weight:600;margin:0 0 10px}' +
             '.nm-text{font-size:13px;opacity:.7;line-height:1.45;margin:0 0 12px}' +
@@ -276,7 +307,22 @@ class NotesManagerPanel {
             '.nm-ta-add-suggest-pill:hover{background:var(--cards-hover-bg)}' +
             '.nm-ta-add-picker{margin-top:8px;padding:8px;border:1px solid var(--cards-border-color);border-radius:6px;background:var(--cards-bg)}' +
             '.nm-ta-export-pre{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--cards-bg);border:1px solid var(--cards-border-color);border-radius:6px;padding:10px;overflow:auto;max-height:260px;white-space:pre-wrap;word-break:break-word}' +
-            'input[type=range].nm-ta-range{width:100%}'
+            'input[type=range].nm-ta-range{width:100%}' +
+            '.nm-home-search{margin-top:14px;padding-top:12px;border-top:1px solid var(--cards-border-color)}' +
+            '.nm-home-search-results{margin-top:8px;max-height:11rem;overflow:auto;border:1px solid var(--cards-border-color);border-radius:var(--ed-radius-block);font-size:12px;line-height:1.35}' +
+            '.nm-home-search-row{display:flex;gap:8px;width:100%;padding:5px 8px;border:none;border-bottom:1px solid var(--cards-border-color);cursor:pointer;align-items:baseline;text-align:left;background:transparent;color:inherit;font:inherit}' +
+            '.nm-home-search-row:last-child{border-bottom:none}' +
+            '.nm-home-search-row:hover{background:var(--cards-hover-bg)}' +
+            '.nm-home-search-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+            '.nm-home-search-col{flex:0 1 38%;max-width:10rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.75;font-size:11px}' +
+            '.nm-home-search-headrow{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}' +
+            '.nm-home-search-section{margin-top:10px}' +
+            '.nm-home-search-section-title{font-size:12px;font-weight:600;opacity:.8;margin:0 0 4px}' +
+            '.nm-home-search-section-head{margin:0 0 4px;justify-content:space-between;width:100%;flex-wrap:wrap;gap:6px 10px}' +
+            '.nm-help-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box}' +
+            '.nm-help-dialog{position:relative;max-width:440px;width:100%;max-height:min(85vh,520px);overflow:auto;background:var(--cards-bg);border:1px solid var(--cards-border-color);border-radius:var(--ed-radius-block);padding:18px 40px 18px 18px;box-shadow:0 8px 32px rgba(0,0,0,.4)}' +
+            '.nm-help-close{position:absolute;top:8px;right:8px;z-index:1;width:32px;height:32px;border:none;border-radius:var(--ed-radius-normal);background:transparent;color:inherit;cursor:pointer;font-size:18px;line-height:1;opacity:.75}' +
+            '.nm-help-close:hover{opacity:1;background:var(--cards-hover-bg)}'
         );
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Open', icon: 'list-tree', onSelected: () => this._openPanel('home') });
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Assign subpages', icon: 'list-tree', onSelected: () => this._openPanel('assign-parent') });
@@ -329,7 +375,7 @@ class NotesManagerPanel {
 
     _menuHTML() {
         const breadcrumb = this._breadcrumbPath();
-        return `<div class="nm-menu-wrap"><div class="nm-menu-trigger"><button class="nm-hamburger"><i class="ti ti-menu-2"></i></button><span class="nm-header-crumb">${breadcrumb}</span></div><div class="nm-dropdown" hidden><button class="nm-dropdown-item" data-action="set-mode" data-mode="home">Home</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="bulk-move">Bulk move notes</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-analyzer">Tag analyzer</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-merge">Tag merge</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button></div></div>`;
+        return `<div class="nm-menu-wrap"><div class="nm-menu-trigger"><button class="nm-hamburger"><i class="ti ti-menu-2"></i></button><span class="nm-header-crumb">${breadcrumb}</span></div><div class="nm-dropdown" hidden><button class="nm-dropdown-item" data-action="set-mode" data-mode="home">Home</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="bulk-move">Bulk move notes</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-analyzer">Tag analyzer</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-merge">Tag merge</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button><hr class="nm-dropdown-divider" /><button type="button" class="nm-dropdown-item" data-action="nm-help">Help</button></div></div>`;
     }
 
     _statusHTML() {
@@ -337,7 +383,17 @@ class NotesManagerPanel {
     }
 
     _sharedTailHTML() {
-        return `${this._buildReviewLogSection()}${this._statusHTML()}`;
+        return `${this._buildReviewLogSection()}${this._statusHTML()}${this._buildHelpDialogHTML()}`;
+    }
+
+    _buildHelpDialogHTML() {
+        if (!this._helpDialogOpen) return '';
+        const body =
+            '<p class="nm-muted" style="margin:0 0 10px;font-size:13px;line-height:1.55"><strong>Overview</strong> — this screen.</p>' +
+            '<p class="nm-muted" style="margin:0 0 10px;font-size:13px;line-height:1.55"><strong>Structure</strong> — assign subpages (collections with Sub-pages).</p>' +
+            '<p class="nm-muted" style="margin:0 0 10px;font-size:13px;line-height:1.55"><strong>Bulk</strong> — move many notes between collections.</p>' +
+            '<p class="nm-muted" style="margin:0;font-size:13px;line-height:1.55"><strong>Tags</strong> — quick rename, advanced review (grid / remove / add / trace), analyzer, merge from plan JSON.</p>';
+        return `<div class="nm-help-overlay"><div class="nm-help-dialog" role="dialog" aria-modal="true" aria-labelledby="nm-help-title"><button type="button" class="nm-help-close" data-action="nm-help-close" aria-label="Close">×</button><p id="nm-help-title" class="nm-title" style="font-size:16px;margin:0 0 4px">Help</p><p class="nm-text" style="margin:0 0 12px;font-size:13px">What each area in the navigation bar is for.</p>${body}</div></div>`;
     }
 
     _tagAdvancedState(st) {
@@ -435,7 +491,370 @@ ${pickerHtml}
     }
 
     _buildHomeHTML() {
-        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Notes Manager</p><p class="nm-text">Use the navigation bar above to open any tool. The review log below is shared across operations.</p><p class="nm-muted" style="margin-top:12px;font-size:13px;line-height:1.55"><strong>Overview</strong> — this screen.<br><strong>Structure</strong> — assign subpages (collections with Sub-pages).<br><strong>Bulk</strong> — move many notes between collections.<br><strong>Tags</strong> — quick rename, advanced review (grid / remove / add / trace), analyzer, merge from plan JSON.</p></div>${this._shellFrameClose()}`;
+        const hs = this._homeSearch;
+        const ev = !!this._settings.homeSearchEverywhere;
+        const qEsc = this._escape(hs.query || '');
+        const runDisabled = hs.running ? ' disabled' : '';
+        const toggle = `<label class="nm-inline" style="gap:6px;align-items:center;font-size:12px;font-weight:600;cursor:pointer;"><input type="checkbox" class="nm-home-search-everywhere"${ev ? ' checked' : ''}> <span>Search everywhere (notes, tags & collections)</span></label>`;
+        const hint = ev
+            ? `With <strong>Search everywhere</strong> on: the same words must appear in each hit — <strong>notes</strong> (title + body, same scope as below), <strong>tags</strong> (tag index names), or <strong>collections</strong> (names). Up to ${NM_HOME_SEARCH_MAX_ROWS} rows per section. Use <strong>Reindex tags &amp; refresh search</strong> under Tags if the tag list looks empty or stale (same index rebuild as <strong>Refresh index</strong> in tag tools).`
+            : `All words must appear somewhere in the note title or body (same collection scope as tag tools: excluded collections from <strong>Tag rename</strong> matching options). Total matches are counted; results page in groups of ${NM_HOME_SEARCH_MAX_ROWS} (up to ${NM_HOME_SEARCH_MAX_STORED_NOTE_HITS} hits kept for paging). Body text is truncated per note for speed. Turn on <strong>Search everywhere</strong> to also match tag and collection names.`;
+        let resultsBlock = '';
+        const noteRowsHtml = rows =>
+            rows
+                .map(
+                    r =>
+                        `<button type="button" class="nm-home-search-row" data-action="hs-open" data-guid="${this._escape(r.guid)}" title="Open in other panel"><span class="nm-home-search-title">${this._escape(r.name)}</span><span class="nm-home-search-col">${this._escape(r.collectionName)}</span></button>`,
+                )
+                .join('');
+        if ((hs.query || '').trim()) {
+            if (!ev) {
+                if (hs.running) {
+                    resultsBlock = '<p class="nm-muted" style="font-size:12px;margin-top:8px;">Searching…</p>';
+                } else if (!hs.notesTotalMatches) {
+                    resultsBlock = '<p class="nm-muted" style="font-size:12px;margin-top:8px;">No matches.</p>';
+                } else {
+                    const w = NM_HOME_SEARCH_MAX_ROWS;
+                    const nStored = hs.notesHits.length;
+                    const maxOff = nStored <= w ? 0 : Math.floor((nStored - 1) / w) * w;
+                    const off = hs.notesPageOffset;
+                    const rows = hs.results;
+                    const fromN = off + 1;
+                    const toN = off + rows.length;
+                    const storeHint = hs.notesHitsStorageCapped
+                        ? ` <span class="nm-muted">(total ${hs.notesTotalMatches.toLocaleString()}; first ${NM_HOME_SEARCH_MAX_STORED_NOTE_HITS} listed for paging)</span>`
+                        : '';
+                    const disFirst = off <= 0 ? ' disabled' : '';
+                    const disPrev = off <= 0 ? ' disabled' : '';
+                    const disNext = off >= maxOff ? ' disabled' : '';
+                    const disLast = off >= maxOff ? ' disabled' : '';
+                    const meta = `<div class="nm-inline nm-home-search-meta" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px 10px;font-size:11px;margin:6px 0 4px;width:100%;"><span class="nm-muted">${hs.notesTotalMatches.toLocaleString()} match${hs.notesTotalMatches === 1 ? '' : 'es'} · showing ${fromN.toLocaleString()}–${toN.toLocaleString()}${storeHint} · ${hs.scanned.toLocaleString()} scanned</span><span class="nm-inline" style="gap:4px;flex-wrap:wrap;align-items:center;"><button type="button" class="nm-btn nm-btn--secondary nm-home-search-page" style="font-size:10px;padding:2px 7px;line-height:1.35" data-action="hs-notes-first"${disFirst} title="First page">First</button><button type="button" class="nm-btn nm-btn--secondary nm-home-search-page" style="font-size:10px;padding:2px 7px;line-height:1.35" data-action="hs-notes-prev"${disPrev} title="Previous ${w}">Prev ${w}</button><button type="button" class="nm-btn nm-btn--secondary nm-home-search-page" style="font-size:10px;padding:2px 7px;line-height:1.35" data-action="hs-notes-next"${disNext} title="Next ${w}">Next ${w}</button><button type="button" class="nm-btn nm-btn--secondary nm-home-search-page" style="font-size:10px;padding:2px 7px;line-height:1.35" data-action="hs-notes-last"${disLast} title="Last page (within listed hits)">Last</button></span></div>`;
+                    resultsBlock = `${meta}<div class="nm-home-search-results">${noteRowsHtml(rows)}</div>`;
+                }
+            } else {
+                const nN = hs.resultsNotes.length;
+                const nT = hs.resultsTags.length;
+                const nC = hs.resultsCollections.length;
+                const capN = hs.cappedNotes ? ` <span class="nm-muted">(first ${NM_HOME_SEARCH_MAX_ROWS})</span>` : '';
+                const capT = hs.cappedTags ? ` <span class="nm-muted">(first ${NM_HOME_SEARCH_MAX_ROWS})</span>` : '';
+                const capC = hs.cappedCollections ? ` <span class="nm-muted">(first ${NM_HOME_SEARCH_MAX_ROWS})</span>` : '';
+                const tagRows = hs.resultsTags
+                    .map(
+                        t =>
+                            `<button type="button" class="nm-home-search-row" data-action="hs-open-tag" data-tag="${encodeURIComponent(t.tag)}" title="Open Tag rename with this tag"><span class="nm-home-search-title">#${this._escape(t.tag)}</span><span class="nm-home-search-col">${Number(t.count) || 0} notes</span></button>`,
+                    )
+                    .join('');
+                const colRows = hs.resultsCollections
+                    .map(
+                        c =>
+                            `<button type="button" class="nm-home-search-row" data-action="hs-open-collection" data-guid="${this._escape(c.guid)}" title="Open Bulk move with this collection as source"><span class="nm-home-search-title">${this._escape(c.name)}</span><span class="nm-home-search-col">Bulk move → source</span></button>`,
+                    )
+                    .join('');
+                const notesInner = hs.running
+                    ? '<p class="nm-muted" style="font-size:11px;margin:4px 8px 6px;">Searching…</p>'
+                    : nN
+                      ? `<p class="nm-muted" style="font-size:11px;margin:4px 8px 6px;">${nN} note(s)${capN} · ${hs.scanned.toLocaleString()} scanned</p><div class="nm-home-search-results">${noteRowsHtml(hs.resultsNotes)}</div>`
+                      : '<p class="nm-muted" style="font-size:11px;margin:4px 8px 6px;">No matching notes.</p>';
+                const tagsHead = `<div class="nm-inline nm-home-search-section-head"><span class="nm-home-search-section-title" style="margin:0">Tags</span><button type="button" class="nm-btn nm-btn--secondary nm-home-search-retag" style="font-size:10px;padding:2px 8px;line-height:1.35" data-action="hs-refresh-tags-index-search"${hs.running ? ' disabled' : ''} title="Rebuild the tag index from your notes (same scope as Tag tools), then re-run this search">Reindex tags &amp; refresh search</button></div>`;
+                const tagsBlock = `<div class="nm-home-search-section">${tagsHead}${
+                    nT
+                        ? `<p class="nm-muted" style="font-size:11px;margin:0 0 4px;">${nT} tag(s)${capT}</p><div class="nm-home-search-results">${tagRows}</div>`
+                        : '<p class="nm-muted" style="font-size:11px;margin:0;">No matching tags.</p>'
+                }</div>`;
+                const colsBlock = `<div class="nm-home-search-section"><p class="nm-home-search-section-title">Collections</p>${
+                    nC
+                        ? `<p class="nm-muted" style="font-size:11px;margin:0 0 4px;">${nC} collection(s)${capC}</p><div class="nm-home-search-results">${colRows}</div>`
+                        : '<p class="nm-muted" style="font-size:11px;margin:0;">No matching collections.</p>'
+                }</div>`;
+                const notesBlock = `<div class="nm-home-search-section"><p class="nm-home-search-section-title">Notes</p>${notesInner}</div>`;
+                if (!hs.running && !nN && !nT && !nC) {
+                    resultsBlock = '<p class="nm-muted" style="font-size:12px;margin-top:8px;">No matches in notes, tags, or collections.</p>';
+                } else {
+                    resultsBlock = `${notesBlock}${tagsBlock}${colsBlock}`;
+                }
+            }
+        }
+        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Notes Manager</p><p class="nm-text">Use the navigation bar above to open any tool. The review log below is shared across operations. Open the <strong>menu</strong> (☰) and choose <strong>Help</strong> for an overview of each tool group.</p><div class="nm-home-search"><div class="nm-home-search-headrow"><span class="nm-label" style="margin:0">Quick search</span>${toggle}</div><div class="nm-inline" style="gap:8px;flex-wrap:wrap;align-items:center;width:100%;margin-top:4px;"><input class="nm-input nm-home-search-q" type="search" placeholder="Words to match…" autocomplete="off" value="${qEsc}" style="flex:1 1 220px;min-width:180px"><button type="button" class="nm-btn nm-btn--secondary" data-action="hs-clear">Clear</button><button type="button" class="nm-btn" data-action="hs-run"${runDisabled}>Search</button></div><p class="nm-muted" style="font-size:11px;margin-top:6px;line-height:1.45">${hint}</p>${resultsBlock}</div></div>${this._shellFrameClose()}`;
+    }
+
+    _scheduleHomeSearch(ms = 220) {
+        if (this._homeSearchTimer) clearTimeout(this._homeSearchTimer);
+        this._homeSearchTimer = setTimeout(() => {
+            this._homeSearchTimer = null;
+            void this._runHomeSearch();
+        }, ms);
+    }
+
+    _clearHomeSearchTimer() {
+        if (this._homeSearchTimer) {
+            clearTimeout(this._homeSearchTimer);
+            this._homeSearchTimer = null;
+        }
+    }
+
+    /**
+     * Lowercased plain text from line items for Home quick search (capped for performance).
+     */
+    async _homeSearchBodyLower(record) {
+        const parts = [];
+        let total = 0;
+        try {
+            const lineItems = await record.getLineItems(true);
+            for (const item of lineItems || []) {
+                const segs = item?.segments;
+                if (!Array.isArray(segs)) continue;
+                for (const seg of segs) {
+                    const t = this.segmentTextAsString(seg);
+                    if (!t) continue;
+                    parts.push(t);
+                    total += t.length;
+                    if (total >= NM_HOME_SEARCH_BODY_MAX) return parts.join(' ').toLowerCase();
+                }
+            }
+        } catch (_) {}
+        return parts.join(' ').toLowerCase();
+    }
+
+    _homeSearchWordsFromQuery(q) {
+        return String(q || '')
+            .trim()
+            .toLowerCase()
+            .split(/\s+/)
+            .map(w => w.trim())
+            .filter(Boolean);
+    }
+
+    _homeSearchSortNoteRowsByTitle(rows) {
+        if (!Array.isArray(rows) || rows.length < 2) return;
+        rows.sort((a, b) => {
+            const c = String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+            if (c !== 0) return c;
+            return String(a.collectionName || '').localeCompare(String(b.collectionName || ''), undefined, {
+                sensitivity: 'base',
+            });
+        });
+    }
+
+    _homeSearchNotesApplyPage() {
+        const hs = this._homeSearch;
+        const w = NM_HOME_SEARCH_MAX_ROWS;
+        const n = hs.notesHits.length;
+        if (n === 0) {
+            hs.notesPageOffset = 0;
+            hs.results = [];
+            return;
+        }
+        const maxOff = n <= w ? 0 : Math.floor((n - 1) / w) * w;
+        if (hs.notesPageOffset > maxOff) hs.notesPageOffset = maxOff;
+        if (hs.notesPageOffset < 0) hs.notesPageOffset = 0;
+        hs.results = hs.notesHits.slice(hs.notesPageOffset, hs.notesPageOffset + w);
+    }
+
+    async _runHomeSearch() {
+        const hs = this._homeSearch;
+        const ev = !!this._settings.homeSearchEverywhere;
+        const q = (hs.query || '').trim();
+        const runId = ++hs.runId;
+        const clearAll = () => {
+            hs.results = [];
+            hs.notesHits = [];
+            hs.notesTotalMatches = 0;
+            hs.notesHitsStorageCapped = false;
+            hs.notesPageOffset = 0;
+            hs.resultsNotes = [];
+            hs.resultsTags = [];
+            hs.resultsCollections = [];
+            hs.capped = false;
+            hs.cappedNotes = false;
+            hs.cappedTags = false;
+            hs.cappedCollections = false;
+            hs.scanned = 0;
+            hs.running = false;
+        };
+        if (!q) {
+            clearAll();
+            if (this._panel && this._mode === 'home') this._render(this._panel);
+            return;
+        }
+        const words = this._homeSearchWordsFromQuery(q);
+        if (!words.length) {
+            clearAll();
+            if (this._panel && this._mode === 'home') this._render(this._panel);
+            return;
+        }
+        hs.running = true;
+        if (this._panel && this._mode === 'home') this._render(this._panel);
+        const opts = this._tagScanOpts();
+
+        if (!ev) {
+            const notesHits = [];
+            let notesTotalMatches = 0;
+            let notesHitsStorageCapped = false;
+            let scanned = 0;
+            let errorText = '';
+            hs.notesPageOffset = 0;
+            try {
+                const { collections } = await this.getScannableCollections(opts);
+                for (const collection of collections) {
+                    if (runId !== hs.runId) return;
+                    const records = (await collection.getAllRecords?.()) || [];
+                    const colName = collection.getName?.() || '';
+                    for (const record of records) {
+                        if (runId !== hs.runId) return;
+                        scanned += 1;
+                        const name = record.getName?.() || '';
+                        const bodyLower = await this._homeSearchBodyLower(record);
+                        const hay = `${name} ${bodyLower}`.toLowerCase();
+                        if (!words.every(w => hay.includes(w))) continue;
+                        notesTotalMatches += 1;
+                        if (notesHits.length < NM_HOME_SEARCH_MAX_STORED_NOTE_HITS) {
+                            notesHits.push({
+                                guid: record.guid || '',
+                                name: name.trim() || '(untitled)',
+                                collectionName: colName,
+                            });
+                        } else {
+                            notesHitsStorageCapped = true;
+                        }
+                    }
+                }
+                this._homeSearchSortNoteRowsByTitle(notesHits);
+            } catch (e) {
+                if (runId !== hs.runId) return;
+                errorText = String(e?.message || e);
+                notesHits.length = 0;
+                notesTotalMatches = 0;
+                notesHitsStorageCapped = false;
+                scanned = 0;
+            } finally {
+                if (runId !== hs.runId) return;
+                hs.running = false;
+                hs.notesHits = notesHits;
+                hs.notesTotalMatches = notesTotalMatches;
+                hs.notesHitsStorageCapped = notesHitsStorageCapped;
+                hs.notesPageOffset = 0;
+                this._homeSearchNotesApplyPage();
+                hs.resultsNotes = [];
+                hs.resultsTags = [];
+                hs.resultsCollections = [];
+                hs.capped = false;
+                hs.cappedNotes = false;
+                hs.cappedTags = false;
+                hs.cappedCollections = false;
+                hs.scanned = scanned;
+                const summary = errorText
+                    ? `Home search failed: ${errorText}`
+                    : notesTotalMatches === 0
+                      ? `Home search: no matches (${scanned.toLocaleString()} note(s) scanned).`
+                      : `Home search: ${notesTotalMatches.toLocaleString()} match(es)${notesHitsStorageCapped ? ` (first ${NM_HOME_SEARCH_MAX_STORED_NOTE_HITS} listed for paging)` : ''} · ${scanned.toLocaleString()} note(s) scanned.`;
+                this._setStatus(summary, { title: 'Notes Manager', logged: true });
+                if (this._panel && this._mode === 'home') this._render(this._panel);
+            }
+            return;
+        }
+
+        hs.results = [];
+        hs.notesHits = [];
+        hs.notesTotalMatches = 0;
+        hs.notesHitsStorageCapped = false;
+        hs.notesPageOffset = 0;
+        hs.resultsNotes = [];
+        hs.resultsTags = [];
+        hs.resultsCollections = [];
+        hs.capped = false;
+        hs.cappedNotes = false;
+        hs.cappedTags = false;
+        hs.cappedCollections = false;
+        hs.scanned = 0;
+
+        let resultsNotes = [];
+        let scanned = 0;
+        let cappedNotes = false;
+        let errorText = '';
+        try {
+            await this._ensureTagLoaded(false);
+            if (runId !== hs.runId) return;
+            const tagIndex = Array.isArray(this._tagState.tagIndex) ? this._tagState.tagIndex : [];
+            const tagHits = tagIndex
+                .filter((e) => {
+                    const t = String(e?.tag ?? '').toLowerCase();
+                    return t && words.every(w => t.includes(w));
+                })
+                .sort((a, b) =>
+                    String(a.tag || '').localeCompare(String(b.tag || ''), undefined, { sensitivity: 'base' }),
+                );
+            for (const e of tagHits) {
+                if (hs.resultsTags.length >= NM_HOME_SEARCH_MAX_ROWS) {
+                    hs.cappedTags = true;
+                    break;
+                }
+                hs.resultsTags.push({ tag: String(e.tag || ''), count: Number(e.count) || 0 });
+            }
+
+            const allCollections = (await this.plugin.data.getAllCollections?.()) || [];
+            const colCandidates = allCollections
+                .filter(c => this.isUserCollection(c) && !this.shouldExcludeCollection(c, opts))
+                .sort((a, b) =>
+                    String(a.getName?.() || '').localeCompare(String(b.getName?.() || ''), undefined, {
+                        sensitivity: 'base',
+                    }),
+                );
+            for (const c of colCandidates) {
+                const nameLower = String(c.getName?.() || '').toLowerCase();
+                if (!nameLower || !words.every(w => nameLower.includes(w))) continue;
+                if (hs.resultsCollections.length >= NM_HOME_SEARCH_MAX_ROWS) {
+                    hs.cappedCollections = true;
+                    break;
+                }
+                const guid = c.getGuid?.() || '';
+                if (!guid) continue;
+                hs.resultsCollections.push({ guid, name: c.getName?.() || 'Untitled' });
+            }
+
+            if (runId !== hs.runId) return;
+            if (this._panel && this._mode === 'home') this._render(this._panel);
+
+            const allNoteHits = [];
+            const { collections } = await this.getScannableCollections(opts);
+            for (const collection of collections) {
+                if (runId !== hs.runId) return;
+                const records = (await collection.getAllRecords?.()) || [];
+                const colName = collection.getName?.() || '';
+                for (const record of records) {
+                    if (runId !== hs.runId) return;
+                    scanned += 1;
+                    const name = record.getName?.() || '';
+                    const bodyLower = await this._homeSearchBodyLower(record);
+                    const hay = `${name} ${bodyLower}`.toLowerCase();
+                    if (!words.every(w => hay.includes(w))) continue;
+                    allNoteHits.push({
+                        guid: record.guid || '',
+                        name: name.trim() || '(untitled)',
+                        collectionName: colName,
+                    });
+                }
+            }
+            this._homeSearchSortNoteRowsByTitle(allNoteHits);
+            cappedNotes = allNoteHits.length > NM_HOME_SEARCH_MAX_ROWS;
+            resultsNotes = cappedNotes ? allNoteHits.slice(0, NM_HOME_SEARCH_MAX_ROWS) : allNoteHits;
+        } catch (e) {
+            if (runId !== hs.runId) return;
+            errorText = String(e?.message || e);
+            resultsNotes = [];
+            scanned = 0;
+            cappedNotes = false;
+        } finally {
+            if (runId !== hs.runId) return;
+            hs.running = false;
+            hs.resultsNotes = resultsNotes;
+            hs.cappedNotes = cappedNotes;
+            hs.scanned = scanned;
+            const summary = errorText
+                ? `Home search (everywhere) failed: ${errorText}`
+                : `Home search (everywhere): ${resultsNotes.length} note(s), ${hs.resultsTags.length} tag(s), ${hs.resultsCollections.length} collection(s) · ${scanned.toLocaleString()} note(s) scanned.`;
+            this._setStatus(summary, { title: 'Notes Manager', logged: true });
+            if (this._panel && this._mode === 'home') this._render(this._panel);
+        }
     }
 
     _shellNavItem(mode, label) {
@@ -1097,6 +1516,146 @@ ${this._shellFrameClose()}`;
         return 0;
     }
 
+    /**
+     * Whether `record` already carries `tag` using the same `collectTagsFromRecord` rules as the
+     * tag index (body + property text + optional choice values, respecting `scanOpts`).
+     */
+    async _recordHasTagForScan(record, tag, scanOpts) {
+        const st = this._tagState;
+        const want = this.cleanTag(tag);
+        if (!want) return false;
+        const tags = await this.collectTagsFromRecord(record, scanOpts);
+        for (const t of tags) {
+            if (this.matchKey(t, st.caseSensitive) === this.matchKey(want, st.caseSensitive)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Review Grid: `recordGuid` → `sourceTag` → `Set<targetTag>` — mirrors `_reviewGridApply`
+     * so preview target-count math matches apply (including per-source target conflicts).
+     */
+    _reviewGridTargetsByGuid(rowsToApply, defaultSource, defaultTarget) {
+        const targetsByGuid = new Map();
+        for (const row of rowsToApply) {
+            const src = this.cleanTag(row.sourceTag || defaultSource);
+            const tgt = this.cleanTag((row.action === 'override' ? row.overrideTarget : '') || defaultTarget);
+            if (!src || !tgt) continue;
+            const guidKey = row.recordGuid || '';
+            let bySrc = targetsByGuid.get(guidKey);
+            if (!bySrc) {
+                bySrc = new Map();
+                targetsByGuid.set(guidKey, bySrc);
+            }
+            let targets = bySrc.get(src);
+            if (!targets) {
+                targets = new Set();
+                bySrc.set(src, targets);
+            }
+            targets.add(tgt);
+        }
+        return targetsByGuid;
+    }
+
+    /**
+     * Human-readable block listing per-target tag index record counts before / predicted or actual after.
+     * Preview entries: `{ target, before, delta }`. Apply entries: `{ target, before, after }`.
+     */
+    _formatTargetTagRecordCountSection(entries) {
+        if (!Array.isArray(entries) || !entries.length) return '';
+        const lines = [
+            '',
+            'Target tag — records (index scope)',
+            'Each value counts distinct scannable notes that currently have that tag in the tag index.',
+        ];
+        for (const e of entries) {
+            const name = this.cleanTag(e.target);
+            if (!name) continue;
+            if (e.after !== undefined && e.after !== null) {
+                const delta = e.after - e.before;
+                const sign = delta > 0 ? `+${delta}` : `${delta}`;
+                lines.push(`  #${name}: before ${e.before} → after ${e.after} (${sign})`);
+            } else {
+                const d = Number(e.delta) || 0;
+                const sign = d > 0 ? `+${d}` : `${d}`;
+                lines.push(`  #${name}: before ${e.before} → after (predicted) ${e.before + d} (${sign})`);
+            }
+        }
+        return lines.join('\n');
+    }
+
+    async _reviewGridPredictTargetAddsByTarget(plan, scanOpts, defaultSource, defaultTarget) {
+        const st = this._tagState;
+        const idx = st.tagIndex || [];
+        const targetsByGuid = this._reviewGridTargetsByGuid(plan.rowsToApply, defaultSource, defaultTarget);
+        const allTargets = new Set();
+        for (const row of plan.rowsToApply) {
+            const tgt = this.cleanTag((row.action === 'override' ? row.overrideTarget : '') || defaultTarget);
+            if (tgt) allTargets.add(tgt);
+        }
+        const pending = new Map();
+        for (const [guid, bySrc] of targetsByGuid.entries()) {
+            const tgtSet = new Set();
+            for (const [, targets] of bySrc.entries()) {
+                if (targets && targets.size === 1) tgtSet.add(targets.values().next().value);
+            }
+            if (tgtSet.size) pending.set(guid, tgtSet);
+        }
+        const addsByTarget = new Map();
+        for (const t of allTargets) addsByTarget.set(t, new Set());
+        await this.forEachScannableRecord(scanOpts, async record => {
+            const guid = record?.guid || '';
+            const tgtSet = pending.get(guid);
+            if (!tgtSet || !tgtSet.size) return;
+            for (const tgt of tgtSet) {
+                const had = await this._recordHasTagForScan(record, tgt, scanOpts);
+                if (!had) addsByTarget.get(tgt).add(guid);
+            }
+        });
+        const sorted = [...allTargets].sort((a, b) => this._compareTagNamesForSort(a, b));
+        return sorted.map(tgt => ({
+            target: tgt,
+            before: this._tagIndexLookupCount(tgt, idx),
+            delta: addsByTarget.get(tgt)?.size || 0,
+        }));
+    }
+
+    async _tagMergePerTargetRecordCountPreview(opts, rows) {
+        const st = this._tagState;
+        const idx = st.tagIndex || [];
+        const targets = [...new Set(rows.filter(r => !r.skip).map(r => this.cleanTag(r.to)).filter(Boolean))].sort((a, b) =>
+            this._compareTagNamesForSort(a, b)
+        );
+        const out = [];
+        for (const T of targets) {
+            const fromSet = [
+                ...new Set(rows.filter(r => !r.skip && this.cleanTag(r.to) === T).map(r => this.cleanTag(r.from)).filter(Boolean)),
+            ];
+            const gained = new Set();
+            if (fromSet.length) {
+                await this.forEachScannableRecord(opts, async record => {
+                    if (await this._recordHasTagForScan(record, T, opts)) return;
+                    for (const f of fromSet) {
+                        const ch = await this._renameTagInRecord({
+                            record,
+                            oldTag: f,
+                            newTag: T,
+                            caseSensitive: st.caseSensitive,
+                            dryRun: true,
+                            collectRows: null,
+                        });
+                        if (ch.recordChanged) {
+                            gained.add(record?.guid || '');
+                            break;
+                        }
+                    }
+                });
+            }
+            out.push({ target: T, before: this._tagIndexLookupCount(T, idx), delta: gained.size });
+        }
+        return out;
+    }
+
     _tagMergeRefreshRowIndexCounts() {
         const idx = this._tagState.tagIndex || [];
         for (const r of this._tagMergeState.rows) {
@@ -1303,12 +1862,14 @@ ${this._shellFrameClose()}`;
                 if (stats.errors.length > 5) lines.push(`  ... +${stats.errors.length - 5} more`);
             }
         }
+        const mergePred = await this._tagMergePerTargetRecordCountPreview(this._tagScanOpts(), m.rows);
+        if (mergePred.length) lines.push(this._formatTargetTagRecordCountSection(mergePred));
         lines.push('', 'Checksum (export combinedCount vs index-use sum at load for grid rows in that cluster): see Per-cluster totals card.');
         m.running = false;
         const out = lines.join('\n');
         m.output = out;
         this._logRow('tag-merge', 'preview', { recordGuid: '', recordName: '' }, out);
-        this._setStatus('Preview complete. Detailed results are in the Tag merge output panel and review log.', { title: 'Tag merge', autoDestroyTime: 3500 });
+        this._setStatus('Preview complete. Detailed results are in the Tag merge output panel and review log.', { title: 'Tag merge', logged: true });
         if (this._panel) this._render(this._panel);
     }
 
@@ -1324,6 +1885,12 @@ ${this._shellFrameClose()}`;
             `Run timestamp: ${new Date().toLocaleString()}`,
             '',
         ];
+        const stMerge = this._tagState;
+        const idxMergeStart = stMerge.tagIndex || [];
+        const mergeTargetSet = new Set(m.rows.filter(r => !r.skip).map(r => this.cleanTag(r.to)).filter(Boolean));
+        const mergeTargetBefore = new Map(
+            [...mergeTargetSet].map(t => [t, this._tagIndexLookupCount(t, idxMergeStart)]),
+        );
         const appliedFrom = [];
         for (const row of m.rows) {
             if (row.skip) {
@@ -1341,6 +1908,15 @@ ${this._shellFrameClose()}`;
             }
         }
         await this._refreshTagIndex();
+        const idxMergeAfter = stMerge.tagIndex || [];
+        const mergeApplyEntries = [...mergeTargetSet]
+            .sort((a, b) => this._compareTagNamesForSort(a, b))
+            .map(t => ({
+                target: t,
+                before: mergeTargetBefore.get(t) ?? 0,
+                after: this._tagIndexLookupCount(t, idxMergeAfter),
+            }));
+        if (mergeApplyEntries.length) lines.push(this._formatTargetTagRecordCountSection(mergeApplyEntries));
         lines.push('', 'Post-apply: index refreshed. Residual source tags:');
         for (const from of appliedFrom) {
             const cnt = this._tagIndexLookupCount(from, this._tagState.tagIndex);
@@ -1369,7 +1945,7 @@ ${this._shellFrameClose()}`;
         const out = lines.join('\n');
         m.output = out;
         this._logRow('tag-merge', 'summary', { recordGuid: '', recordName: '' }, out);
-        this._setStatus('Apply complete. Detailed results are in the Tag merge output panel and review log.', { title: 'Tag merge', autoDestroyTime: 4000 });
+        this._setStatus('Apply complete. Detailed results are in the Tag merge output panel and review log.', { title: 'Tag merge', logged: true });
         if (this._panel) this._render(this._panel);
     }
 
@@ -1505,13 +2081,80 @@ ${this._shellFrameClose()}`;
                 if (!drop.hidden) document.addEventListener('click', () => { drop.hidden = true; }, { once: true });
             }, { signal });
         }
+        const hsQ = el.querySelector('.nm-home-search-q');
+        if (hsQ instanceof HTMLInputElement) {
+            hsQ.addEventListener(
+                'input',
+                () => {
+                    this._homeSearch.query = hsQ.value;
+                    this._scheduleHomeSearch();
+                },
+                { signal },
+            );
+            hsQ.addEventListener(
+                'keydown',
+                e => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    this._clearHomeSearchTimer();
+                    this._homeSearch.query = hsQ.value;
+                    void this._runHomeSearch();
+                },
+                { signal },
+            );
+        }
+        const hsEv = el.querySelector('.nm-home-search-everywhere');
+        if (hsEv instanceof HTMLInputElement) {
+            hsEv.addEventListener(
+                'change',
+                () => {
+                    this._settings.homeSearchEverywhere = !!hsEv.checked;
+                    this._saveSettings();
+                    if ((this._homeSearch.query || '').trim()) this._scheduleHomeSearch();
+                    else if (this._panel && this._mode === 'home') this._render(this._panel);
+                },
+                { signal },
+            );
+        }
+        const helpOv = el.querySelector('.nm-help-overlay');
+        if (helpOv) {
+            helpOv.addEventListener(
+                'click',
+                e => {
+                    if (e.target !== helpOv) return;
+                    this._helpDialogOpen = false;
+                    if (this._panel) this._render(this._panel);
+                },
+                { signal },
+            );
+            const onHelpEsc = e => {
+                if (e.key !== 'Escape') return;
+                this._helpDialogOpen = false;
+                if (this._panel) this._render(this._panel);
+            };
+            document.addEventListener('keydown', onHelpEsc, { signal });
+        }
         el.addEventListener('click', async e => {
             const target = e.target.closest('[data-action]');
             if (!target) return;
             const action = target.dataset.action;
             switch (action) {
+                case 'nm-help': {
+                    this._helpDialogOpen = true;
+                    const menuDrop = el.querySelector('.nm-dropdown');
+                    if (menuDrop) menuDrop.hidden = true;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'nm-help-close': {
+                    this._helpDialogOpen = false;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
                 case 'set-mode': {
                     const next = target.dataset.mode || 'home';
+                    this._helpDialogOpen = false;
+                    if (next !== 'home') this._clearHomeSearchTimer();
                     if (this._mode === 'tag-merge' && next !== 'tag-merge') this._resetTagMergeState();
                     if (next === 'home') {
                         if (this._mode === 'bulk-move') await this._resetBulkMoveForm();
@@ -1527,13 +2170,133 @@ ${this._shellFrameClose()}`;
                     if (this._panel) this._render(this._panel);
                     break;
                 }
+                case 'hs-clear': {
+                    this._clearHomeSearchTimer();
+                    this._homeSearch.query = '';
+                    this._homeSearch.results = [];
+                    this._homeSearch.notesHits = [];
+                    this._homeSearch.notesTotalMatches = 0;
+                    this._homeSearch.notesHitsStorageCapped = false;
+                    this._homeSearch.notesPageOffset = 0;
+                    this._homeSearch.resultsNotes = [];
+                    this._homeSearch.resultsTags = [];
+                    this._homeSearch.resultsCollections = [];
+                    this._homeSearch.capped = false;
+                    this._homeSearch.cappedNotes = false;
+                    this._homeSearch.cappedTags = false;
+                    this._homeSearch.cappedCollections = false;
+                    this._homeSearch.scanned = 0;
+                    this._homeSearch.runId += 1;
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'hs-notes-first': {
+                    this._homeSearch.notesPageOffset = 0;
+                    this._homeSearchNotesApplyPage();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'hs-notes-prev': {
+                    this._homeSearch.notesPageOffset = Math.max(
+                        0,
+                        this._homeSearch.notesPageOffset - NM_HOME_SEARCH_MAX_ROWS,
+                    );
+                    this._homeSearchNotesApplyPage();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'hs-notes-next': {
+                    const hsn = this._homeSearch;
+                    const w = NM_HOME_SEARCH_MAX_ROWS;
+                    const n = hsn.notesHits.length;
+                    const maxOff = n <= w ? 0 : Math.floor((n - 1) / w) * w;
+                    hsn.notesPageOffset = Math.min(maxOff, hsn.notesPageOffset + w);
+                    this._homeSearchNotesApplyPage();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'hs-notes-last': {
+                    const hsn = this._homeSearch;
+                    const w = NM_HOME_SEARCH_MAX_ROWS;
+                    const n = hsn.notesHits.length;
+                    hsn.notesPageOffset = n <= w ? 0 : Math.floor((n - 1) / w) * w;
+                    this._homeSearchNotesApplyPage();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'hs-refresh-tags-index-search': {
+                    if (this._homeSearch.running) break;
+                    this._clearHomeSearchTimer();
+                    const inp = el.querySelector('.nm-home-search-q');
+                    if (inp instanceof HTMLInputElement) this._homeSearch.query = inp.value;
+                    await this._ensureTagLoaded(true);
+                    if (this._mode === 'home' && (this._homeSearch.query || '').trim()) await this._runHomeSearch();
+                    else if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'hs-run': {
+                    this._clearHomeSearchTimer();
+                    const root = e.currentTarget;
+                    const inp = root instanceof Element ? root.querySelector('.nm-home-search-q') : null;
+                    if (inp instanceof HTMLInputElement) this._homeSearch.query = inp.value;
+                    await this._runHomeSearch();
+                    break;
+                }
+                case 'hs-open': {
+                    const g = String(target.dataset.guid || '').trim();
+                    if (g) await this._openReviewGridRecordInOtherPanel(g);
+                    break;
+                }
+                case 'hs-open-tag': {
+                    let tagRaw = '';
+                    try {
+                        tagRaw = decodeURIComponent(target.dataset.tag || '');
+                    } catch (_) {
+                        tagRaw = String(target.dataset.tag || '');
+                    }
+                    const cleaned = this.cleanTag(tagRaw);
+                    if (!cleaned) break;
+                    this._clearHomeSearchTimer();
+                    this._mode = 'tag-rename';
+                    this._settings.defaultMode = 'tag-rename';
+                    this._saveSettings();
+                    await this._ensureTagLoaded(true);
+                    this._tagState.oldTag = `#${cleaned}`;
+                    this._tagState.newTag = '';
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'hs-open-collection': {
+                    const guid = String(target.dataset.guid || '').trim();
+                    if (!guid) break;
+                    this._clearHomeSearchTimer();
+                    await this._ensureBulkMoveLoaded();
+                    const stBm = this._bulkMoveState;
+                    if (!stBm.collections.some(c => c.guid === guid)) break;
+                    stBm.sourceGuid = guid;
+                    this._mode = 'bulk-move';
+                    this._settings.defaultMode = 'bulk-move';
+                    this._saveSettings();
+                    await this._loadBulkMoveRecords();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
                 case 'toggle-review-log': this._settings.reviewLogCollapsed = !this._settings.reviewLogCollapsed; this._saveSettings(); if (this._panel) this._render(this._panel); break;
                 case 'export-log-json': this._exportLogJSON(); break;
                 case 'clear-log': this._activityLog = []; if (this._panel) this._render(this._panel); break;
                 case 'bm-select-all': for (const rec of this._bulkMoveState.filtered) this._bulkMoveState.selectedGuids.add(rec.guid); if (this._panel) this._render(this._panel); break;
                 case 'bm-select-none': this._bulkMoveState.selectedGuids.clear(); this._applyBulkMoveFilter(); if (this._panel) this._render(this._panel); break;
                 case 'bm-toggle': { const g = target.dataset.guid; if (g) { if (target.checked) this._bulkMoveState.selectedGuids.add(g); else this._bulkMoveState.selectedGuids.delete(g); this._applyBulkMoveFilter(); if (this._panel) this._render(this._panel); } break; }
-                case 'bm-refresh': await this._loadBulkMoveRecords(); this._toast('Bulk move', 'Record list refreshed.', 2500); if (this._panel) this._render(this._panel); break;
+                case 'bm-refresh': {
+                    await this._loadBulkMoveRecords();
+                    const stBm = this._bulkMoveState;
+                    const n = Array.isArray(stBm.filtered) ? stBm.filtered.length : (Array.isArray(stBm.records) ? stBm.records.length : 0);
+                    const msg = `Bulk move: record list refreshed (${n} shown).`;
+                    this._logRow('bulk-move', 'applied', { recordGuid: '', recordName: '' }, msg);
+                    this._setStatus(msg, { title: 'Bulk move', logged: true });
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
                 case 'bm-preview': await this._previewBulkMove(); if (this._panel) this._render(this._panel); break;
                 case 'run-bulk-move': await this._runBulkMove(); if (this._panel) this._render(this._panel); break;
                 case 'ap-toggle': { const row = this._assignState.rows.find(r => r.guid === target.dataset.guid); if (row) { row.checked = !!target.checked; if (this._panel) this._render(this._panel); } break; }
@@ -1580,7 +2343,7 @@ ${this._shellFrameClose()}`;
                     }
                     break;
                 case 'tr-rg-build': await this._reviewGridBuild(); if (this._panel) this._render(this._panel); break;
-                case 'tr-rg-preview': this._reviewGridPreview(); if (this._panel) this._render(this._panel); break;
+                case 'tr-rg-preview': await this._reviewGridPreview(); if (this._panel) this._render(this._panel); break;
                 case 'tr-rg-apply': await this._reviewGridApply(); if (this._panel) this._render(this._panel); break;
                 case 'tr-rg-source-clear':
                     this._tagState.reviewGridSourceTag = '';
@@ -1795,7 +2558,6 @@ ${this._shellFrameClose()}`;
                 }
                 case 'tr-refresh-index':
                     await this._refreshTagIndex();
-                    this._toast('Tag index', 'Index refreshed.', 2500);
                     if (this._mode === 'tag-analyzer') this._tagAnalyzerClearResults();
                     if (this._mode === 'tag-merge' && this._tagMergeState.rows.length) this._tagMergeRefreshRowIndexCounts();
                     if (this._panel) this._render(this._panel);
@@ -2644,7 +3406,9 @@ ${this._shellFrameClose()}`;
             } catch (e) { fail++; this._logRow('bulk-move', 'failed', row, String(e?.message || e)); }
         }
         await this._loadBulkMoveRecords();
-        this._setStatus(`Bulk move apply complete: ${ok} ok, ${fail} failed.`, { title: 'Bulk move', autoDestroyTime: fail ? 7000 : 3500 });
+        const bulkApplyMsg = `Bulk move apply complete: ${ok} ok, ${fail} failed.`;
+        this._logRow('bulk-move', 'summary', { recordGuid: '', recordName: '' }, bulkApplyMsg);
+        this._setStatus(bulkApplyMsg, { title: 'Bulk move', logged: true });
         st.previewRows = [];
         st.running = false;
     }
@@ -2680,7 +3444,9 @@ ${this._shellFrameClose()}`;
         await this._reloadAssignIndex(true);
         st.previewRows = [];
         st.running = false;
-        this._setStatus(`Assign subpages apply complete: ${ok} ok, ${fail} failed.`, { title: 'Assign subpages', autoDestroyTime: fail ? 7000 : 3500 });
+        const assignApplyMsg = `Assign subpages apply complete: ${ok} ok, ${fail} failed.`;
+        this._logRow('assign-subpages', 'summary', { recordGuid: '', recordName: '' }, assignApplyMsg);
+        this._setStatus(assignApplyMsg, { title: 'Assign subpages', logged: true });
     }
 
     async _ensureTagLoaded(forceRefresh = false) {
@@ -2703,6 +3469,9 @@ ${this._shellFrameClose()}`;
         if (this.matchKey(oldTag, st.caseSensitive) === this.matchKey(newTag, st.caseSensitive)) { this._setStatus('Current and New tags resolve to the same value.'); return; }
         const rows = [];
         const opts = this._tagScanOpts();
+        const idxAtPreview = st.tagIndex || [];
+        const targetBeforeIndex = this._tagIndexLookupCount(newTag, idxAtPreview);
+        let targetGainPredicted = 0;
         let recordsScanned = 0;
         let recordsChanged = 0;
         let recordsUnchanged = 0;
@@ -2728,6 +3497,7 @@ ${this._shellFrameClose()}`;
                 });
                 if (changed.recordChanged) {
                     recordsChanged += 1;
+                    if (!(await this._recordHasTagForScan(record, newTag, opts))) targetGainPredicted += 1;
                     changedRecordDiagnostics.push({
                         guid: record?.guid || '',
                         name: record.getName?.() || '(untitled)',
@@ -2795,9 +3565,17 @@ ${this._shellFrameClose()}`;
             for (const r of unchangedRecords.slice(0, 30)) lines.push(`- ${r.name || '(untitled)'} [${r.guid}] -> ${r.reason}`);
             if (unchangedRecords.length > 30) lines.push(`... and ${unchangedRecords.length - 30} more unchanged records`);
         }
+        lines.push(
+            this._formatTargetTagRecordCountSection([
+                { target: newTag, before: targetBeforeIndex, delta: targetGainPredicted },
+            ]),
+        );
         const dryRunOutput = lines.join('\n');
         this._logRow('tag-rename', 'preview', { recordGuid: '', recordName: '' }, dryRunOutput);
-        this._setStatus(dryRunOutput, { title: 'Tag rename', logged: true });
+        this._setStatus(
+            `Tag rename preview: ${recordsChanged} record(s) would change, ${errors.length} error(s). Full dry run in review log.`,
+            { title: 'Tag rename', logged: true },
+        );
     }
 
     async _applyTagRename() {
@@ -2807,6 +3585,8 @@ ${this._shellFrameClose()}`;
         if (!oldTag || !newTag) { this._setStatus('Both Current tag and New tag are required.'); return; }
         if (this.matchKey(oldTag, st.caseSensitive) === this.matchKey(newTag, st.caseSensitive)) { this._setStatus('Current and New tags resolve to the same value.'); return; }
         st.running = true;
+        const idxAtApplyStart = st.tagIndex || [];
+        const targetBeforeIndex = this._tagIndexLookupCount(newTag, idxAtApplyStart);
         let recordsScanned = 0;
         let recordsChanged = 0;
         let recordsUnchanged = 0;
@@ -2859,6 +3639,8 @@ ${this._shellFrameClose()}`;
         });
         st.running = false;
         st.previewRows = [];
+        await this._refreshTagIndex({ quiet: true });
+        const targetAfterIndex = this._tagIndexLookupCount(newTag, st.tagIndex);
         const mode = 'Rename complete';
         const runType = 'Apply (writes committed)';
         const runAt = new Date().toLocaleString();
@@ -2877,6 +3659,9 @@ ${this._shellFrameClose()}`;
             `Unchanged (no exact tag): ${unchangedNoExactMatch}`,
             'Writes applied: yes',
             errors.length ? `Errors: ${errors.length}` : 'Errors: 0',
+            this._formatTargetTagRecordCountSection([
+                { target: newTag, before: targetBeforeIndex, after: targetAfterIndex },
+            ]),
         ].join('\n');
         const errorDetails = errors.length
             ? [
@@ -2888,7 +3673,10 @@ ${this._shellFrameClose()}`;
             : '';
         const fullOutput = `${summary}${errorDetails}`;
         this._logRow('tag-rename', 'summary', { recordGuid: '', recordName: '' }, fullOutput);
-        this._setStatus(fullOutput, { title: 'Tag rename', logged: true });
+        this._setStatus(
+            `Tag rename apply: ${recordsChanged} record(s) changed, ${errors.length} error(s). Full summary in review log.`,
+            { title: 'Tag rename', logged: true },
+        );
     }
 
     async _renameTagInRecord({ record, oldTag, newTag, caseSensitive, dryRun, collectRows }) {
@@ -3246,8 +4034,8 @@ ${this._shellFrameClose()}`;
         if (hits.length > 60) lines.push(`... and ${hits.length - 60} more hits`);
         st.traceOutput = lines.join('\n');
         st.traceOpen = true;
-        this._setStatus(`Trace complete: ${hits.length} source hit(s) across ${recordSet.size} record(s).`, { title: 'Tag trace' });
         this._logRow('tag-trace', 'applied', { recordGuid: '', recordName: '' }, st.traceOutput);
+        this._setStatus(`Trace complete: ${hits.length} source hit(s) across ${recordSet.size} record(s).`, { title: 'Tag trace', logged: true });
     }
 
     _reviewGridRowsForDisplay() {
@@ -3698,22 +4486,32 @@ ${this._shellFrameClose()}`;
         const gridRows = this._reviewGridRowsForDisplay();
         st.reviewGridMeta = st.reviewGridRows.length ? this._reviewGridMetaSummary(gridRows) : 'No queue built.';
         st.reviewGridOutput = '';
-        this._setStatus(st.reviewGridMeta, { title: 'Review Grid' });
+        this._setStatus(st.reviewGridMeta, { title: 'Review Grid', logged: true });
     }
 
-    _reviewGridPreview() {
+    async _reviewGridPreview() {
         const st = this._tagState;
         const rows = st.reviewGridRows || [];
         if (!rows.length) {
             st.reviewGridOutput = 'Review Grid preview: build a queue first (Find matches).';
             this._logRow('review-grid', 'preview', { recordGuid: '', recordName: '' }, st.reviewGridOutput);
-            this._setStatus(st.reviewGridOutput, { title: 'Review Grid', logged: true });
+            this._setStatus('Review Grid preview: no queue — use Find matches first.', { title: 'Review Grid', logged: true });
             return;
         }
         const plan = this._reviewGridBuildPlan();
-        st.reviewGridOutput = `${plan.preSummary}\n\nPreview generated.`;
+        const defaultSource = this.cleanTag(st.reviewGridSourceTag || st.oldTag);
+        const defaultTarget = this.cleanTag(st.reviewGridDefaultTarget || st.newTag);
+        const opts = this._tagScanOpts();
+        const pred = plan.rowsToApply.length
+            ? await this._reviewGridPredictTargetAddsByTarget(plan, opts, defaultSource, defaultTarget)
+            : [];
+        const countBlock = pred.length ? this._formatTargetTagRecordCountSection(pred) : '';
+        st.reviewGridOutput = `${plan.preSummary}${countBlock}\n\nPreview generated.`;
         this._logRow('review-grid', 'preview', { recordGuid: '', recordName: '' }, st.reviewGridOutput);
-        this._setStatus(st.reviewGridOutput, { title: 'Review Grid', logged: true });
+        this._setStatus(
+            `Review Grid preview: ${plan.rowsToApply.length} row(s) to apply of ${plan.totalRows} in queue. Full plan in review log.`,
+            { title: 'Review Grid', logged: true },
+        );
     }
 
     async _reviewGridApply() {
@@ -3723,7 +4521,7 @@ ${this._shellFrameClose()}`;
         if (!plan.rowsToApply.length) {
             st.reviewGridOutput += '\n\nNo rows selected for apply.';
             this._logRow('review-grid', 'summary', { recordGuid: '', recordName: '' }, st.reviewGridOutput);
-            this._setStatus(st.reviewGridOutput, { title: 'Review Grid', logged: true });
+            this._setStatus('Review Grid apply: no rows selected. Full message in review log.', { title: 'Review Grid', logged: true });
             if (this._panel) this._render(this._panel);
             return;
         }
@@ -3731,26 +4529,18 @@ ${this._shellFrameClose()}`;
         if (this._panel) this._render(this._panel);
         const defaultSource = this.cleanTag(st.reviewGridSourceTag || st.oldTag);
         const defaultTarget = this.cleanTag(st.reviewGridDefaultTarget || st.newTag);
+        const idxAtApplyStart = st.tagIndex || [];
+        const distinctTargets = new Set();
+        for (const row of plan.rowsToApply) {
+            const t = this.cleanTag((row.action === 'override' ? row.overrideTarget : '') || defaultTarget);
+            if (t) distinctTargets.add(t);
+        }
+        const targetBeforeMap = new Map(
+            [...distinctTargets].map(t => [t, this._tagIndexLookupCount(t, idxAtApplyStart)]),
+        );
         // Group by record guid → Map<sourceTag, Set<targetTag>> so each scanned record does one
         // O(1) lookup instead of iterating the whole rowsToApply list (was O(records × rows)).
-        const targetsByGuid = new Map();
-        for (const row of plan.rowsToApply) {
-            const src = this.cleanTag(row.sourceTag || defaultSource);
-            const tgt = this.cleanTag((row.action === 'override' ? row.overrideTarget : '') || defaultTarget);
-            if (!src || !tgt) continue;
-            const guidKey = row.recordGuid || '';
-            let bySrc = targetsByGuid.get(guidKey);
-            if (!bySrc) {
-                bySrc = new Map();
-                targetsByGuid.set(guidKey, bySrc);
-            }
-            let targets = bySrc.get(src);
-            if (!targets) {
-                targets = new Set();
-                bySrc.set(src, targets);
-            }
-            targets.add(tgt);
-        }
+        const targetsByGuid = this._reviewGridTargetsByGuid(plan.rowsToApply, defaultSource, defaultTarget);
         const appliedGuids = new Set();
         let skippedConflicts = 0;
         let failed = 0;
@@ -3797,8 +4587,22 @@ ${this._shellFrameClose()}`;
             st.reviewGridOutput = afterLines.join('\n');
             this._clearReviewGridQueue();
             await this._refreshTagIndex({ quiet: true });
+            const idxAfter = st.tagIndex || [];
+            const applyCountEntries = [...distinctTargets]
+                .sort((a, b) => this._compareTagNamesForSort(a, b))
+                .map(t => ({
+                    target: t,
+                    before: targetBeforeMap.get(t) ?? 0,
+                    after: this._tagIndexLookupCount(t, idxAfter),
+                }));
+            if (applyCountEntries.length) {
+                st.reviewGridOutput += this._formatTargetTagRecordCountSection(applyCountEntries);
+            }
             this._logRow('review-grid', 'summary', { recordGuid: '', recordName: '' }, st.reviewGridOutput);
-            this._setStatus(st.reviewGridOutput, { title: 'Review Grid', logged: true });
+            this._setStatus(
+                `Review Grid apply: ${appliedGuids.size} record(s) updated, ${failed} error(s), ${skippedConflicts} conflict skip(s). Full summary in review log.`,
+                { title: 'Review Grid', logged: true },
+            );
         } finally {
             st.running = false;
         }
@@ -4193,7 +4997,7 @@ ${this._shellFrameClose()}`;
         const gridRows = this._addTagRowsForDisplay();
         st.addTagMeta = st.addTagRows.length ? this._addTagMetaSummary(gridRows) : 'No queue built.';
         st.addTagOutput = '';
-        this._setStatus(st.addTagMeta, { title: 'Add tag' });
+        this._setStatus(st.addTagMeta, { title: 'Add tag', logged: true });
     }
 
     _collapseAddTagRowsByRecord(rows) {
@@ -4238,14 +5042,14 @@ ${this._shellFrameClose()}`;
         if (!rows.length) {
             st.addTagOutput = 'Add tag preview: build a queue first (Find matches).';
             this._logRow('add-tag', 'preview', { recordGuid: '', recordName: '' }, st.addTagOutput);
-            this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+            this._setStatus('Add tag preview: no queue — use Find matches first.', { title: 'Add tag', logged: true });
             return;
         }
         const toAdd = rows.filter(r => r.action === 'default').length;
         if (!toAdd) {
             st.addTagOutput = 'Add tag preview: no rows marked for Add. Check Add on one or more rows, or use the Add column header to select all visible rows, then try Preview again.';
             this._logRow('add-tag', 'preview', { recordGuid: '', recordName: '' }, st.addTagOutput);
-            this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+            this._setStatus('Add tag preview: no rows marked for Add. Details in review log.', { title: 'Add tag', logged: true });
             return;
         }
         const skipped = rows.filter(r => r.action === 'skip').length;
@@ -4259,7 +5063,10 @@ ${this._shellFrameClose()}`;
             `Neither (off): ${off}`,
         ].join('\n');
         this._logRow('add-tag', 'preview', { recordGuid: '', recordName: '' }, st.addTagOutput);
-        this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+        this._setStatus(
+            `Add tag preview: ${toAdd} row(s) marked add of ${rows.length} in queue. Full preview in review log.`,
+            { title: 'Add tag', logged: true },
+        );
     }
 
     async _addTagApply() {
@@ -4270,7 +5077,7 @@ ${this._shellFrameClose()}`;
         if (!tag) {
             st.addTagOutput = 'Add tag apply: no tag set.';
             this._logRow('add-tag', 'summary', { recordGuid: '', recordName: '' }, st.addTagOutput);
-            this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+            this._setStatus('Add tag apply: no tag set. Details in review log.', { title: 'Add tag', logged: true });
             if (this._panel) this._render(this._panel);
             return;
         }
@@ -4279,7 +5086,10 @@ ${this._shellFrameClose()}`;
                 ? 'Add tag apply: no rows marked for Add. Check Add on one or more rows, or use the Add column header to select all visible rows, then try Apply again.'
                 : 'Add tag apply: build a queue first (Find matches).';
             this._logRow('add-tag', 'summary', { recordGuid: '', recordName: '' }, st.addTagOutput);
-            this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+            this._setStatus(
+                rows.length ? 'Add tag apply: no rows marked for Add. Details in review log.' : 'Add tag apply: no queue. Details in review log.',
+                { title: 'Add tag', logged: true },
+            );
             if (this._panel) this._render(this._panel);
             return;
         }
@@ -4356,7 +5166,10 @@ ${this._shellFrameClose()}`;
             this._resetReviewGridWorkflow();
             await this._refreshTagIndex({ quiet: true });
             this._logRow('add-tag', 'summary', { recordGuid: '', recordName: '' }, st.addTagOutput);
-            this._setStatus(st.addTagOutput, { title: 'Add tag', logged: true });
+            this._setStatus(
+                `Add tag apply: ${recordsWritten} record(s) written, ${failed} error(s), ${noWrite} no-op. Full summary in review log.`,
+                { title: 'Add tag', logged: true },
+            );
         } finally {
             st.running = false;
         }
@@ -4516,7 +5329,7 @@ ${this._shellFrameClose()}`;
         const gridRows = this._removeTagRowsForDisplay();
         st.removeTagMeta = st.removeTagRows.length ? this._removeTagMetaSummary(gridRows) : 'No queue built.';
         st.removeTagOutput = '';
-        this._setStatus(st.removeTagMeta, { title: 'Remove tag' });
+        this._setStatus(st.removeTagMeta, { title: 'Remove tag', logged: true });
     }
 
     /** Human-readable placement for apply / review log (matches queue `source`). */
@@ -4536,7 +5349,7 @@ ${this._shellFrameClose()}`;
         if (!rows.length) {
             st.removeTagOutput = 'Remove tag preview: build a queue first (Find matches).';
             this._logRow('remove-tag', 'preview', { recordGuid: '', recordName: '' }, st.removeTagOutput);
-            this._setStatus(st.removeTagOutput, { title: 'Remove tag', logged: true });
+            this._setStatus('Remove tag preview: no queue — use Find matches first.', { title: 'Remove tag', logged: true });
             return;
         }
         const toRemove = rows.filter(r => r.action === 'default').length;
@@ -4549,7 +5362,10 @@ ${this._shellFrameClose()}`;
             `Marked skip: ${skipped}`,
         ].join('\n');
         this._logRow('remove-tag', 'preview', { recordGuid: '', recordName: '' }, st.removeTagOutput);
-        this._setStatus(st.removeTagOutput, { title: 'Remove tag', logged: true });
+        this._setStatus(
+            `Remove tag preview: ${toRemove} row(s) marked remove of ${rows.length} in queue. Full preview in review log.`,
+            { title: 'Remove tag', logged: true },
+        );
     }
 
     _adjustRemoveTagLineIndices(pendingBodyHits, deletedLineIndex) {
@@ -4660,14 +5476,14 @@ ${this._shellFrameClose()}`;
         if (!tag) {
             st.removeTagOutput = 'Remove tag apply: no tag set.';
             this._logRow('remove-tag', 'summary', { recordGuid: '', recordName: '' }, st.removeTagOutput);
-            this._setStatus(st.removeTagOutput, { title: 'Remove tag', logged: true });
+            this._setStatus('Remove tag apply: no tag set. Details in review log.', { title: 'Remove tag', logged: true });
             if (this._panel) this._render(this._panel);
             return;
         }
         if (!rowsToApply.length) {
             st.removeTagOutput = 'Remove tag apply: no rows marked for removal (all skipped or empty queue).';
             this._logRow('remove-tag', 'summary', { recordGuid: '', recordName: '' }, st.removeTagOutput);
-            this._setStatus(st.removeTagOutput, { title: 'Remove tag', logged: true });
+            this._setStatus('Remove tag apply: nothing to remove. Details in review log.', { title: 'Remove tag', logged: true });
             if (this._panel) this._render(this._panel);
             return;
         }
@@ -4758,7 +5574,10 @@ ${this._shellFrameClose()}`;
             this._resetReviewGridWorkflow();
             await this._refreshTagIndex({ quiet: true });
             this._logRow('remove-tag', 'summary', { recordGuid: '', recordName: '' }, st.removeTagOutput);
-            this._setStatus(st.removeTagOutput, { title: 'Remove tag', logged: true });
+            this._setStatus(
+                `Remove tag apply: ${recordsWritten} record(s) written, ${failed} error(s), ${noWrite} no-op. Full summary in review log.`,
+                { title: 'Remove tag', logged: true },
+            );
         } finally {
             st.running = false;
         }
@@ -5494,7 +6313,7 @@ ${this._shellFrameClose()}`;
     _captureFocusState(rootEl) {
         const active = document.activeElement;
         if (!(active instanceof HTMLInputElement) || !rootEl.contains(active)) return null;
-        const known = ['.nm-bm-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-tr-exclude-picker-filter', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter', '.nm-rt-tag', '.nm-rt-filter', '.nm-at-tag', '.nm-at-record-filter', '.nm-at-table-filter', '.nm-ta-target-input', '.nm-ta-add-input', '.nm-ta-add-picker-filter'];
+        const known = ['.nm-bm-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-tr-exclude-picker-filter', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter', '.nm-rt-tag', '.nm-rt-filter', '.nm-at-tag', '.nm-at-record-filter', '.nm-at-table-filter', '.nm-ta-target-input', '.nm-ta-add-input', '.nm-ta-add-picker-filter', '.nm-home-search-q'];
         const selector = known.find(sel => active.matches(sel));
         if (!selector) return null;
         return { selector, selectionStart: active.selectionStart, selectionEnd: active.selectionEnd };
@@ -5511,7 +6330,7 @@ ${this._shellFrameClose()}`;
     }
 
     _captureScrollState(rootEl) {
-        const selectors = ['.nm-table-wrap', '.nm-tm-table-wrap', '.nm-list-rows', '.nm-log-table-wrap', '.nm-exclude-picker-panel'];
+        const selectors = ['.nm-table-wrap', '.nm-tm-table-wrap', '.nm-list-rows', '.nm-log-table-wrap', '.nm-exclude-picker-panel', '.nm-home-search-results'];
         const items = [];
         selectors.forEach(sel => {
             rootEl.querySelectorAll(sel).forEach((el, idx) => items.push({ sel, idx, top: el.scrollTop, left: el.scrollLeft }));

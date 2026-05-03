@@ -4,96 +4,60 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Version
 
-- **Current version:** `1.0.6`
+- **Current version:** `1.0.11`
+- **Full per-release notes:** [changelog.md](./changelog.md) (detailed archive). Current behavior is also described under **Feature Overview** below.
+
+### What’s new in 1.0.11
+
+- **Home quick search — footer:** The panel footer (**`nm-status`**) is updated **before** the home UI re-renders when a search finishes, so the bottom line matches the in-page match counts and summary.
+- **Search everywhere — Tags:** **Reindex tags & refresh search** on the same line as the **Tags** header rebuilds the tag index (same scope as **Refresh index** in tag tools) and re-runs the current query.
+- **Quick search — sort order:** Note rows sort **A–Z by title** (then collection). **Tags** sort **A–Z by tag name**. **Collections** sort **A–Z by collection name**. With **Search everywhere**, the **Notes** list is the **alphabetically first 25** title matches (after scanning all notes in scope).
+
+### What’s new in 1.0.10
+
+- **Help:** Overview / Structure / Bulk / Tags text moved into a **☰ → Help** modal (with Esc, ×, backdrop, or switching tools to close). Home focuses on **Quick search**.
+- **Home — Quick search:** **Notes:** word-AND over title + body, same excluded-collection scope as tag tools; **full match count**, **25-row pages** with **First / Prev / Next / Last** (up to **500** hits kept for paging; total still correct beyond that). **Search everywhere:** one query fills **Notes**, **Tags**, and **Collections** (25 rows each); row clicks open the note elsewhere, jump to **Tag rename** with that tag, or **Bulk move** with that collection as source.
+
+### What’s new in 1.0.9
+
+- **Home — Quick search (first drop):** Debounced field, word-AND note search over title + body, dense result list; foundation for the 1.0.10 extensions above.
+
+### What’s new in 1.0.8
+
+- **Status vs toasts:** Heavy tools prefer **review log + `nm-status`** for the main story; duplicate completion toasts dropped where the log already narrates the outcome (merge, bulk move, assign, review workflows, trace, tag index refresh).
+
+### What’s new in 1.0.7
+
+- **Rename / review / merge:** Preview and apply summaries include **per-target tag index counts** (distinct notes with that tag before vs predicted or actual after), aligned across Tag rename, Review Grid, and Tag merge.
 
 ### What’s new in 1.0.6
 
-**Shared shell and navigation**
-
-- **One frame everywhere:** Header (menu + breadcrumb), grouped **tool navigation** (Overview → Home; Structure → Assign subpages; Bulk → Bulk move; Tags → Rename, **Trace & Review**, Analyzer, Merge), **main** content, then the shared **Review log**—same layout for every mode so switching tools feels more continuous.
-
-**Tag analyzer — per-member editing**
-
-- **Exclude individual tags from a cluster:** Each member pill now has an **×** to drop just that tag from the cluster. Excluded members are shown struck-through; click **↺** on the same pill to restore. Excluded members are removed from the export plan’s `merging` list and from `combinedCount`. Clicking the **text** of an excluded pill (to pick it as the target) auto-restores it.
-- **Auto-pick fallback:** Excluding the current target shifts the target to the highest-count remaining active member automatically; you can always override via pill click or the **Target tag** input.
-- **Skipped clusters:** Once a cluster has fewer than 2 active members it is automatically skipped in the export, with a header note (`Skipped in export — fewer than 2 active members`).
-- **Convert to manual:** Auto clusters now show a small **Convert to manual** button next to **Omit from export**. Conversion gives the cluster a stable id so member exclusions, target picks, and custom target text **survive re-Analyze** (manual clusters are already preserved by the existing `prevManual` carry-over). The cluster then displays the existing **Manual** badge.
-- **Add tags to a manual cluster:** Each manual cluster (including auto clusters that were Converted to manual) now exposes an inline **+ Add tag** input plus an **Add tags…** picker in its detail pane. The inline input shows top suggestions (sorted by usage count) as you type — Enter accepts the top match, click a suggestion pill, or click **+ Add** to add the typed tag. The picker opens a tickable list (filter + checklist) for bulk adds. Adds are restricted to tags that exist in the current tag index. Toasts report `added` / `restored` / `already member` / `not in index`. Refusing on auto clusters: a toast asks you to **Convert to manual** first.
-- **Cluster header summary:** Shows `N/M active → 1` when any members are excluded (versus `N tags → 1` previously) and the detail pane lists the excluded tag names plus active-vs-total combined counts.
-
-**Performance**
-
-- **Debounced filter typing:** Filter and slider inputs across Bulk move, Assign subpages, Tag review (Review Grid / Remove tag / Add tag, plus the excluded-collections picker filter) and the Tag analyzer (manual cluster filter, threshold + similarity sliders) now coalesce rapid keystrokes through a shared 120 ms debounce instead of re-rendering the whole panel on every character. State updates remain synchronous so values stay correct, but the costly DOM rewrite is deferred until typing pauses.
-- **Tag review — render-scoped memoization:** The Review Grid / Remove tag / Add tag display rows (filter + sort) are now memoized per render and only the active sub-mode is computed. Switching tabs or reaching them with large queues skips two redundant filter-and-sort passes per render.
-- **Tag review — review-log work skipped when collapsed:** The shared Review log only slices/reverses `_activityLog` and renders rows when it is actually expanded. Default-collapsed renders no longer pay for that work.
-- **Tag index refresh — single pass:** `_refreshTagIndex` now collects choice-inclusive and choice-exclusive tag sets in one walk over each record’s line items and properties (via a new `collectTagsFromRecordWithChoiceVariants` helper), removing a second full record scan and the duplicate `getLineItems(true)` calls.
-- **Excluded-collections check:** `shouldExcludeCollection` lowercases the configured exclude list once per scan instead of on every iteration of the inner `some()` loop.
-- **Review Grid apply — O(N+M) lookup:** `_reviewGridApply` indexes per-row targets in a `Map<guid, Map<src, Set<target>>>` and joins by record GUID instead of scanning the full overrides table for each scanned record.
-- **Tag analyzer — Levenshtein 2-row DP:** `_tagAnalyzerLevenshtein` now uses a two-row dynamic-programming table (O(min(m, n)) memory) instead of the full O(m·n) matrix, and similarity calculations reuse precomputed per-tag signatures (lowercased token / length cache) so the O(N²) cluster scan stops re-tokenizing the same tags.
-
-**Fixed**
-
-- **Remove tag — body text segments:** `_applyRemoveTagHitsOnRecord` no longer throws `ReferenceError: text is not defined` when removing a hashtag occurrence inside a `body-text-token` segment; the rewritten segment text is now captured from `_removeNthHashtagTokenFromText` and applied correctly.
-- **Tag analyzer — manual cluster persistence:** **Change threshold / sensitivity** no longer wipes manual clusters (and clusters that were **Convert to manual**’d). Both that flow and an in-place re-Analyze now preserve manual clusters along with their target picks (`tagAnalyzerReplacements`), the open cluster id (when it points to a kept manual cluster), per-member exclusions, and the manual id counter so newly minted ids never collide.
+- **Shell:** Single **header + grouped nav + main + shared review log** layout across all tools.
+- **Tag analyzer:** **Per-member exclude/restore**, **Convert to manual**, **inline + picker add tags** on manual clusters, clearer cluster summaries, and **skipped** clusters when too few active members remain.
 
 ### What’s new in 1.0.5
 
-**Tag review (advanced) — Add tag, Remove tag, Thymer SDK**
-
-- **Add tag — tab:** Third workflow after **Remove tag**: free-text tag, **Record filter** (title + first two body lines), **Narrow rows**, **Find matches** / **Preview** / **Apply**, review log.
-- **Add tag — selection:** Queue rows start with **no** row checked for **Add**; use per-row **Add** or the **Add** column header for visible rows. **Preview** / **Apply** prompt if nothing is marked for add.
-- **Add tag — after apply:** Clears the whole Add tab (tag, record filter, narrow rows, sort, queue), then shows the completion summary in the output area.
-- **Add tag — apply output:** Summary **counts** (unique marked, attempts, writes, no-write, errors) plus **Updated records** (live title, placement, GUID). **Review log:** one **`applied`** or **`failed`** row per record, plus summary.
-- **Remove tag — apply output:** Same summary + **Updated records** list and per-record **Review log** rows as Add tag apply.
-- **Add tag — Tags / hashtag property (SDK):** **`record.prop('Tags')`** / **`record.prop('Tag')`** are tried first, then **`getAllProperties()`**. A column counts as **hashtag-typed** if **any** hint among `getType()`, `type`, `propertyType`, `fieldType`, or `kind` equals **`hashtag`** or contains the word **`hashtag`**. The queue also treats a **Tags** / **Tag** column as writable when it supports **`addValue`** or **`set`** + **`texts()`** / **`values()`**, is **not** a choice enum (`choices()` array), and either is hashtag-typed or uses that name (covers API quirks where the type string is not exactly `hashtag`). Among candidates, prefer **Tags** / **Tag**, then names containing `tag`, then **`isMultiValue()`**. Apply uses **`addValue`** when **`isMultiValue()`** is true, otherwise **`texts()`** / **`values()`** + **`set(array)`**. **Stored value:** hashtag-typed fields get the **tag token only** (no leading `#`; Thymer renders `#` — passing `#tag` could show as `##tag`). Plain text–style Tags columns follow existing entries (`#`-prefixed vs plain; empty column defaults to `#tag`). Duplicate checks scan every queueable property. If none qualify: new body line with `#tag` and one trailing space.
-- **Tag index / trace:** **`shouldScanTextPropertyForTags`** is true for hashtag-typed properties **or** columns named **Tags** / **Tag**, even when the name does not otherwise contain “tag”.
-- **Line items:** Body hashtag segments use the same **`hashtag`** constant as the SDK segment type.
+- **Tag review — Add tag:** Full third workflow (filter, queue, preview/apply, logging) plus **practical Tags / hashtag column handling** via the Thymer record API (`prop`, `addValue`, `set`, multi-value rules, body fallback).
 
 ### What’s new in 1.0.4
 
-**Tag review (advanced)**
-
-- **Remove tag:** Sub-workflow under **Advanced workflow** (next to **Review Grid**). Find matches on body hashtag segments, plain `#tags` in text segments, and tag-like **text** properties (same text-field rules as trace; choice/enum fields are not edited). **Preview** / **Apply** with skip/remove columns; apply summary reports **Records modified (writes applied)** based on actual writes (accurate when some rows are skipped). After apply, the remove queue and tag field clear, the tag index refreshes quietly, and the Review Grid inputs/queue reset.
-- **Remove tag suggestions:** Tag index refresh also tags **choice-only** tags (present in the full index but not when choice/enum sources are excluded); those tags are omitted from the remove-tag suggestion list.
-- **One row per record:** **Review Grid** and **Remove tag** queues collapse multiple hits in the same note to a single row, with a short hint when there are several locations. Rename/remove still apply across every matching location in that record.
+- **Tag review — Remove tag:** New advanced workflow (body + text properties, preview/apply, logging) alongside Review Grid; **one row per record** when multiple hits exist in the same note.
 
 ### What’s new in 1.0.3
 
-**Updated**
-
-- **Tag analyzer wording:** Updated cluster editing terminology from canonical to target (for example, **Canonical tag** is now **Target tag**).
-- **Export JSON toggle behavior:** The button now toggles between **Show export JSON** and **Close export JSON**; clicking again closes the export panel.
-- **Tag analyzer quick jumps:** Added **Jump to export JSON** (opens and scrolls) and **Jump to orphan tags** (scrolls; disabled when there are no orphan tags).
-- **Orphan tags copy action:** Added **Copy** on the Orphan tags header to copy orphan tags with counts to clipboard.
-- **Manual cluster section UX:** **Add manual cluster** is now collapsible with a chevron preface header and starts collapsed by default.
-- **Tag suggestion responsiveness:** Improved tag suggestion lookup to prioritize prefix matches and reduce unnecessary sorting work on large tag indexes.
-- **Trace copy consistency:** Trace helper wording now matches the action label (**Trace tag source**) for a clearer, consistent UX.
-- **Navigation order:** On **Home**, the header **menu** (after **Home**), and the **command palette** (after **Notes Manager: Open**), tool shortcuts are listed **A–Z** by label. The first Home shortcut is still the primary button style (**Assign subpages**).
+- **Tag analyzer & navigation polish:** Target terminology, export JSON toggle/jumps, orphan copy, collapsible manual cluster section, improved suggestions, A–Z tool ordering in menu and palette.
 
 ### What was new in 1.0.2
 
-**Fixed**
-
-- **Tag list with “Exclude choice/enum” on:** The tag index again matches the usual size you’d expect, while still keeping true choice/enum values out of the list. Label-style fields no longer sneak extra tags into the index through the wrong path.
-- **Tag trace and Review Grid “Find matches”:** When choice/enum is excluded from the tag list, those views follow the same rules as the index so you don’t see stray matches from fields that shouldn’t count.
-
-**Updates**
-
-- **Suggestion lists everywhere:** Same idea on **Current tag**, **Assign subpages → Parent note**, **Review Grid** source/default/override fields: arrow keys move the highlight, **Enter** picks (or runs **Find matches** on the source field when the floating list isn’t open), **Esc** closes the list. The row under the keyboard is highlighted so you can see what you’re about to pick.
-- **Tag analyzer:** Tag index is filled in automatically; set a **usage threshold** and **similarity** slider, then **Analyze** to find merge-style clusters (same clustering idea as the standalone Tag Triage HTML tool). Export a JSON consolidation plan; apply renames separately in **Tag rename** / **Review Grid**.
-- **Tag merge:** Added a dedicated **Tag merge** workflow to load/export consolidation-plan JSON and apply merge rows with the same preview/apply scan behavior used by Tag rename.
+- **Tag analyzer** (clustering + export plan) and **Tag merge** (load plan, preview/apply) added as first-class tools; **shared keyboard** behavior for suggestion lists across rename, assign, and review.
 
 ### What was new in 1.0.1
 
-- **Tag rename (quick):** **⌘/Ctrl+Enter** for preview and **⌘/Ctrl+Shift+Enter** to apply from the Current or New tag fields. Buttons show the same shortcuts in their tooltips.
-- **Tag review — Review Grid:** Clearer **queue summary**, **Preview** aligned with a detailed apply plan, **Override** with tag-index suggestions and a **×** to clear.
-- **Tag review — finding matches:** **Enter** on the source tag runs **Find matches**; clearing the source drops the queue; default target **Enter** re-runs find when a source is set.
-- **After grid rename:** Queue clears, tag index refreshes quietly, fuller summary in the grid output.
-- **Group by tag:** Groups follow each row’s matched tag, with group actions and optional open-record from the title.
+- **Tag rename** shortcuts (⌘/Ctrl+Enter preview / apply); **Review Grid** queue/preview/override UX, Enter to find matches, **Group by tag**, and clearer post-rename summaries.
 
 ## Included Tools
 
-(Tools appear in the panel **navigation bar** by group. The header **menu** lists the same tools in **A–Z** order by label, with **Home** first.)
+(Tools appear in the panel **navigation bar** by group. The header **menu** (☰) lists **Home**, then the same tools in **A–Z** order by label, then **Help** — not a separate mode, but a short overview dialog.)
 
 - **Assign subpages**
 - **Bulk move notes**
@@ -106,8 +70,8 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ### Shared Panel UX
 
-- Native custom panel: **breadcrumb** in the header (`Home / ...`), grouped **navigation bar** under the header for every mode, then **main** content and the shared **Review log**.
-- The **menu** lists tools in **A–Z** order by label (**Home** first, then tools alphabetically).
+- Native custom panel: **breadcrumb** (`Home / …`), grouped **navigation bar**, **main** content, and shared **Review log** on every mode. **Home** adds **Quick search** (notes by default, with optional paging and totals; optional **Search everywhere** for notes + tags + collections in three sections — details below).
+- Header **menu** (☰): **Home**, then tools in **A–Z** order by label, then **Help** (after a divider) — opens a modal with the four tool-group overview lines. Help is menu-only (not duplicated in the palette list below).
 - Command palette entries for:
   - `Notes Manager: Open`
   - `Notes Manager: Assign subpages`
@@ -119,6 +83,17 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - Sidebar shortcut: `Notes Manager`.
 - Consistent button, input, and table styling across all tools.
 
+### Home — Quick search
+
+- **Input:** Debounced while typing; **Enter** or **Search** runs immediately; **Clear** resets the field and results. **Search everywhere** is a saved checkbox.
+- **Notes only (checkbox off):** Every scannable note in scope is walked; matches use **word-AND** on **title + body** (body text is capped per note for speed), with the same **excluded collections** rules as tag tools. The UI shows the **total number of matches**, how many notes were **scanned**, and a **page of up to 25** rows. **First** / **Prev 25** / **Next 25** / **Last** sit on the same line as that summary. Up to **500** matching rows are retained for paging; if there are more hits than that, the **total** is still correct and the UI notes that only the first 500 are listed for paging. Listed rows are sorted **A–Z by note title** (then collection); the 500 retained are still the first 500 hits in **scan** order, then sorted for display.
+- **Search everywhere (checkbox on):** One query fills **Notes**, **Tags**, and **Collections** sections (up to **25** rows each; tag hits come from the **tag index**). Tags and collections appear first; the **Notes** block may show **Searching…** until the note scan finishes. **Tags** are sorted **A–Z**; **collections** **A–Z**; **notes** are the first **25** matches when ordered **A–Z by title** (then collection). The **Tags** header includes **Reindex tags & refresh search** to rebuild the index and re-run the query.
+- **Footer line:** After each home search completes, the bottom **`nm-status`** line is set to the same summary as logged for the run, then the panel HTML is rebuilt so the footer matches the on-page counts.
+- **When you click a row**
+  - **Note** (notes-only list or **Notes** section): Opens that note in **another** Thymer panel (the plugin creates/opens an edit panel and navigates to that record — same helper as Review Grid **open in other panel**).
+  - **Tag** (**Tags** section): Leaves Home and opens **Tag rename (quick)** with **Current tag** set to the clicked tag (with `#` as in that tool).
+  - **Collection** (**Collections** section): Leaves Home and opens **Bulk move** with that collection selected as **source**, provided it is still in Bulk move’s loaded source list.
+
 ### Bulk Move Notes
 
 - Source/target collection selectors.
@@ -126,7 +101,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - Select all/select none for visible rows.
 - Preview-first workflow, then apply.
 - Row-level result logging for moved/failed records.
-- Refresh action with toast feedback.
+- Refresh action updates **`nm-status`** and appends a **review log** line (no separate completion toast).
 
 ### Assign Subpages
 
@@ -146,8 +121,9 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
   - Case-sensitive matching
   - Exclude choice/enum values from tag index
   - Exclude collections via **Choose collections to exclude…** (checkbox list + filter); saved as comma-separated names or GUIDs (same as before)
-- Refresh index action with toast feedback.
+- Refresh index updates **`nm-status`** and the **review log** (no separate “refreshed” toast on success).
 - Preview and apply workflows with detailed multi-line outputs.
+- **Target tag record counts:** Preview shows index **before** vs **predicted after** for the New tag; apply shows **before** vs **actual after** (post quiet index refresh).
 - Preview/apply outputs mirrored to review log.
 - **Properties:** For each record, **`prop.texts()`** is read, matching values are rewritten, then **`prop.set([...])`** replaces the full list (multi-value hashtag / text-like tag columns included when they pass the same “text-like for tags” rules as the index). Choice/enum columns use **`setChoice`** when `choices()` is an array.
 
@@ -158,6 +134,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - Review Grid workflow:
   - Source and default target (`#source-tag`, `#default-target`) with tag suggestions; **Enter** runs or re-runs **Find matches** where applicable; clearing the source clears the queue.
   - Queue **build**, **preview** (detailed plan), and **rename** (apply). **Find matches** produces **one row per record** when the same note matches multiple times; the row notes how many tag locations were found.
+  - **Preview / apply:** Per-target **record counts** in the tag index (distinct notes with that tag) — before vs predicted (preview) or before vs actual after refresh (apply), aggregated per default and override targets.
   - **Meta line:** visible vs total rows, plus counts for default / skip / override.
   - Filter and sort, including **Group by tag** (per matched tag, with group default/skip and open-record from the title when grouped).
   - Sticky grid header + sticky first column.
@@ -190,6 +167,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - Expands each `merging` tag into individual rows and supports per-row **Skip** before preview/apply.
 - Uses the same scan/replace behavior as Tag rename for consistent hashtag replacement semantics.
 - Includes **Preview** and **Apply**, row-level statuses, and a collapsible **Per-cluster totals** view.
+- **Preview / apply:** Per-target **record counts** in the tag index before vs predicted (preview) or before vs actual after refresh (apply), for each distinct merge target (`to` tag) among non-skipped rows.
 - Uses the same tag-index scope controls (case-sensitive, exclude choice/enum, excluded collections) via shared matching options + **Refresh index**.
 
 ### Review Log + Status + Toasts
@@ -198,7 +176,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - Newest entries shown first.
 - Row-level and summary operation entries.
 - Save log to JSON.
-- Status messages shown at bottom and toast notifications for non-logged status updates.
+- **`nm-status`** at the bottom of the panel carries short summaries; **toasts** are used for quick feedback (clipboard, small analyzer actions, JSON load, etc.) and for status lines that are **not** marked as already reflected in the log (`logged: true` on `_setStatus` suppresses the duplicate toast when the detail lives in the review log).
 - Preview outputs are mirrored to the log for all tools.
 
 ### Persistence
@@ -249,3 +227,4 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 - Built on Thymer SDK APIs (`AppPlugin`, UI panel APIs, data/record APIs). Property and segment **`hashtag`** handling follows [thymerapp/thymer-plugin-sdk](https://github.com/thymerapp/thymer-plugin-sdk) `types.d.ts` (`PluginProperty`, `PluginRecord.prop`, `PROP_TYPE_HASHTAG`).
 - Single-file implementation for runtime logic: `notes-manager-plugin.js`.
+- **Tag analyzer — duplicate “add tag” UI paths:** Manual cluster **+ Add tag** is wired in two places: the delegated **`click`** handler (`data-action` **`ta-add-from-input`** / **`ta-add-suggest`**, around the main `switch`) and a **`keydown`** listener on **`.nm-ta-add-input`** (Enter = same `_tagAnalyzerAddTagToCluster` + toasts). Behavior is intentionally identical; the strings are duplicated. **Suggestions if you touch this area:** extract a small helper, e.g. **`_tagAnalyzerApplyInlineAdd(cl, candidate)`**, that runs `_tagAnalyzerAddTagToCluster`, clears the per-cluster input on success, sets `tagAnalyzerOpenClusterId`, and shows the same toasts from one place; have both the switch cases and the keydown path call it. Alternatively, have Enter **`click()`** the existing **+ Add** control (or dispatch a synthetic event with the same `data-action`) so only one branch owns the logic. Same idea applies to the picker **Apply** toast block vs any future second entry point — keep outcomes in one function.
