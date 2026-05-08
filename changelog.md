@@ -4,7 +4,17 @@ This file holds the **full** per-release notes that previously lived under **Ver
 
 ---
 
-- **Current version:** `1.0.11`
+- **Current version:** `1.0.12`
+
+### What’s new in 1.0.12
+
+**Bulk operations**
+
+- **Move** and **Delete** now appear as separate actions under the **Bulk** group. The previous **Bulk move** naming was shortened to **Move** across menu/nav/commands.
+
+- New **Delete Notes** screen reuses the Move UX pattern (source collection, filter, show only selected, select all/none, preview, refresh) and applies with **Move to Trash** using `record.trash()`.
+
+- Delete runs include row-level review-log entries (`applied`/`failed`) and a summary status line (`Bulk delete apply complete: X ok, Y failed.`).
 
 ### What’s new in 1.0.11
 

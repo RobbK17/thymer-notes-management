@@ -1,7 +1,7 @@
 /** @see thymerapp/thymer-plugin-sdk types.d.ts PROP_TYPE_HASHTAG, PLUGIN_LINE_ITEM_SEGMENT_TYPE_HASHTAG */
 const THYMER_TYPE_HASHTAG = 'hashtag';
 
-const NOTES_MANAGER_VERSION = '1.0.11';
+const NOTES_MANAGER_VERSION = '1.0.12';
 
 /** Max characters of body text indexed per record for Home quick search (performance). */
 const NM_HOME_SEARCH_BODY_MAX = 16000;
@@ -70,6 +70,22 @@ class NotesManagerPanel {
             filtered: [],
             selectedGuids: new Set(),
             filterText: '',
+            onlySelected: false,
+            previewRows: [],
+        };
+        this._bulkDeleteState = {
+            initialized: false,
+            loading: false,
+            running: false,
+            collections: [],
+            sourceGuid: '',
+            records: [],
+            filtered: [],
+            selectedGuids: new Set(),
+            filterText: '',
+            subPageFilter: 'all',
+            parentGuid: '',
+            parentOptions: [],
             onlySelected: false,
             previewRows: [],
         };
@@ -326,7 +342,8 @@ class NotesManagerPanel {
         );
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Open', icon: 'list-tree', onSelected: () => this._openPanel('home') });
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Assign subpages', icon: 'list-tree', onSelected: () => this._openPanel('assign-parent') });
-        this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Bulk move notes', icon: 'list-tree', onSelected: () => this._openPanel('bulk-move') });
+        this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Move notes', icon: 'list-tree', onSelected: () => this._openPanel('bulk-move') });
+        this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Delete notes', icon: 'list-tree', onSelected: () => this._openPanel('bulk-delete') });
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Tag analyzer', icon: 'list-tree', onSelected: () => this._openPanel('tag-analyzer') });
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Tag merge', icon: 'list-tree', onSelected: () => this._openPanel('tag-merge') });
         this.plugin.ui.addCommandPaletteCommand({ label: 'Notes Manager: Tag rename (quick)', icon: 'list-tree', onSelected: () => this._openPanel('tag-rename') });
@@ -337,6 +354,7 @@ class NotesManagerPanel {
             panel.setTitle('Notes Manager');
             (async () => {
                 if (this._mode === 'bulk-move') await this._ensureBulkMoveLoaded();
+                if (this._mode === 'bulk-delete') await this._ensureBulkDeleteLoaded();
                 if (this._mode === 'assign-parent') await this._ensureAssignLoaded();
                 if (this._mode === 'tag-rename' || this._mode === 'tag-review' || this._mode === 'tag-analyzer' || this._mode === 'tag-merge') await this._ensureTagLoaded(true);
                 this._render(panel);
@@ -358,7 +376,8 @@ class NotesManagerPanel {
     _crumbForMode() {
         return {
             home: 'Home',
-            'bulk-move': 'Bulk move notes',
+            'bulk-move': 'Move notes',
+            'bulk-delete': 'Delete notes',
             'assign-parent': 'Assign subpages',
             'tag-rename': 'Tag rename (quick)',
             'tag-review': 'Tag review (advanced)',
@@ -375,7 +394,7 @@ class NotesManagerPanel {
 
     _menuHTML() {
         const breadcrumb = this._breadcrumbPath();
-        return `<div class="nm-menu-wrap"><div class="nm-menu-trigger"><button class="nm-hamburger"><i class="ti ti-menu-2"></i></button><span class="nm-header-crumb">${breadcrumb}</span></div><div class="nm-dropdown" hidden><button class="nm-dropdown-item" data-action="set-mode" data-mode="home">Home</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="bulk-move">Bulk move notes</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-analyzer">Tag analyzer</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-merge">Tag merge</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button><hr class="nm-dropdown-divider" /><button type="button" class="nm-dropdown-item" data-action="nm-help">Help</button></div></div>`;
+        return `<div class="nm-menu-wrap"><div class="nm-menu-trigger"><button class="nm-hamburger"><i class="ti ti-menu-2"></i></button><span class="nm-header-crumb">${breadcrumb}</span></div><div class="nm-dropdown" hidden><button class="nm-dropdown-item" data-action="set-mode" data-mode="home">Home</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="assign-parent">Assign subpages</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="bulk-move">Move notes</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="bulk-delete">Delete notes</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-analyzer">Tag analyzer</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-merge">Tag merge</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-rename">Tag rename (quick)</button><button class="nm-dropdown-item" data-action="set-mode" data-mode="tag-review">Tag review (advanced)</button><hr class="nm-dropdown-divider" /><button type="button" class="nm-dropdown-item" data-action="nm-help">Help</button></div></div>`;
     }
 
     _statusHTML() {
@@ -547,7 +566,7 @@ ${pickerHtml}
                 const colRows = hs.resultsCollections
                     .map(
                         c =>
-                            `<button type="button" class="nm-home-search-row" data-action="hs-open-collection" data-guid="${this._escape(c.guid)}" title="Open Bulk move with this collection as source"><span class="nm-home-search-title">${this._escape(c.name)}</span><span class="nm-home-search-col">Bulk move → source</span></button>`,
+                            `<button type="button" class="nm-home-search-row" data-action="hs-open-collection" data-guid="${this._escape(c.guid)}" title="Open Move with this collection as source"><span class="nm-home-search-title">${this._escape(c.name)}</span><span class="nm-home-search-col">Move → source</span></button>`,
                     )
                     .join('');
                 const notesInner = hs.running
@@ -863,7 +882,7 @@ ${pickerHtml}
     }
 
     _shellNavHTML() {
-        return `<nav class="nm-shell-nav" role="navigation" aria-label="Notes Manager tools"><div class="nm-shell-group"><span class="nm-shell-group-label">Overview</span>${this._shellNavItem('home', 'Home')}</div><div class="nm-shell-group"><span class="nm-shell-group-label">Structure</span>${this._shellNavItem('assign-parent', 'Assign subpages')}</div><div class="nm-shell-group"><span class="nm-shell-group-label">Bulk</span>${this._shellNavItem('bulk-move', 'Bulk move')}</div><div class="nm-shell-group"><span class="nm-shell-group-label">Tags</span>${this._shellNavItem('tag-rename', 'Rename')}${this._shellNavItem('tag-review', 'Trace & Review')}${this._shellNavItem('tag-analyzer', 'Analyzer')}${this._shellNavItem('tag-merge', 'Merge')}</div></nav>`;
+        return `<nav class="nm-shell-nav" role="navigation" aria-label="Notes Manager tools"><div class="nm-shell-group"><span class="nm-shell-group-label">Overview</span>${this._shellNavItem('home', 'Home')}</div><div class="nm-shell-group"><span class="nm-shell-group-label">Structure</span>${this._shellNavItem('assign-parent', 'Assign subpages')}</div><div class="nm-shell-group"><span class="nm-shell-group-label">Bulk</span>${this._shellNavItem('bulk-move', 'Move')}${this._shellNavItem('bulk-delete', 'Delete')}</div><div class="nm-shell-group"><span class="nm-shell-group-label">Tags</span>${this._shellNavItem('tag-rename', 'Rename')}${this._shellNavItem('tag-review', 'Trace & Review')}${this._shellNavItem('tag-analyzer', 'Analyzer')}${this._shellNavItem('tag-merge', 'Merge')}</div></nav>`;
     }
 
     _shellFrameOpen() {
@@ -882,7 +901,18 @@ ${pickerHtml}
         const sourceOpts = st.collections.map(c => `<option value="${this._escape(c.guid)}"${st.sourceGuid === c.guid ? ' selected' : ''}>${this._escape(c.name)}</option>`).join('');
         const targetOpts = st.collections.map(c => `<option value="${this._escape(c.guid)}"${st.targetGuid === c.guid ? ' selected' : ''}>${this._escape(c.name)}</option>`).join('');
         const rows = st.filtered.map(rec => `<div class="nm-row"><input type="checkbox" data-action="bm-toggle" data-guid="${this._escape(rec.guid)}"${st.selectedGuids.has(rec.guid) ? ' checked' : ''}><span class="nm-row-name" title="${this._escape(rec.name)}">${this._escape(rec.name)}</span><span class="nm-row-meta">${this._escape(rec.guid)}</span></div>`).join('');
-        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Bulk Move Notes</p><p class="nm-text">Preview first, then apply. Row-level results are logged.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bm-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Target collection</label><select class="nm-select nm-bm-target">${targetOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bm-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bm-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline"><button class="nm-btn nm-btn--secondary" data-action="bm-select-all">Select all</button><button class="nm-btn nm-btn--secondary" data-action="bm-select-none">Select none</button><span class="nm-pill">${st.filtered.length} records</span><span class="nm-pill">${st.selectedGuids.size} selected</span></div><span class="nm-muted">${st.loading ? 'Loading records...' : ''}</span></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bm-preview">Preview</button><button class="nm-btn" data-action="run-bulk-move"${st.running ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="bm-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
+        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Move Notes</p><p class="nm-text">Preview first, then apply. Row-level results are logged.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bm-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Target collection</label><select class="nm-select nm-bm-target">${targetOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bm-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bm-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline"><button class="nm-btn nm-btn--secondary" data-action="bm-select-all">Select all</button><button class="nm-btn nm-btn--secondary" data-action="bm-select-none">Select none</button><span class="nm-pill">${st.filtered.length} records</span><span class="nm-pill">${st.selectedGuids.size} selected</span></div><span class="nm-muted">${st.loading ? 'Loading records...' : ''}</span></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bm-preview">Preview</button><button class="nm-btn" data-action="run-bulk-move"${st.running ? ' disabled' : ''}>Apply</button><button class="nm-btn nm-btn--secondary" data-action="bm-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
+    }
+
+    _buildBulkDeleteHTML() {
+        const st = this._bulkDeleteState;
+        const source = this._bulkDeleteCollectionByGuid(st.sourceGuid);
+        const summary = source ? `From "${source.name}" -> Trash` : 'Select source collection';
+        const sourceOpts = st.collections.map(c => `<option value="${this._escape(c.guid)}"${st.sourceGuid === c.guid ? ' selected' : ''}>${this._escape(c.name)}</option>`).join('');
+        const parentOpts = st.parentOptions.map(p => `<option value="${this._escape(p.guid)}"${st.parentGuid === p.guid ? ' selected' : ''}>${this._escape(p.name)}</option>`).join('');
+        const parentHidden = st.subPageFilter !== 'match-parent' ? ' hidden' : '';
+        const rows = st.filtered.map(rec => `<div class="nm-row"><input type="checkbox" data-action="bd-toggle" data-guid="${this._escape(rec.guid)}"${st.selectedGuids.has(rec.guid) ? ' checked' : ''}><span class="nm-row-name" title="${this._escape(rec.name)}">${this._escape(rec.name)}</span><span class="nm-row-meta">${this._escape(rec.guid)}</span></div>`).join('');
+        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Delete Notes</p><p class="nm-text">Preview first, then move selected notes to Trash.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bd-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Sub-page filter</label><select class="nm-select nm-bd-sub-filter"><option value="all"${st.subPageFilter === 'all' ? ' selected' : ''}>All notes</option><option value="children-only"${st.subPageFilter === 'children-only' ? ' selected' : ''}>Only notes with parent</option><option value="root-only"${st.subPageFilter === 'root-only' ? ' selected' : ''}>Only root notes</option><option value="match-parent"${st.subPageFilter === 'match-parent' ? ' selected' : ''}>Match selected parent</option></select></div><div class="nm-field"${parentHidden}><label class="nm-label">Parent note</label><select class="nm-select nm-bd-parent"><option value="">Select parent...</option>${parentOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bd-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bd-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline"><button class="nm-btn nm-btn--secondary" data-action="bd-select-all">Select all</button><button class="nm-btn nm-btn--secondary" data-action="bd-select-none">Select none</button><span class="nm-pill">${st.filtered.length} records</span><span class="nm-pill">${st.selectedGuids.size} selected</span></div><span class="nm-muted">${st.loading ? 'Loading records...' : ''}</span></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bd-preview">Preview</button><button class="nm-btn" data-action="run-bulk-delete"${st.running ? ' disabled' : ''}>Move to Trash</button><button class="nm-btn nm-btn--secondary" data-action="bd-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
     }
 
     _buildAssignParentHTML() {
@@ -2054,6 +2084,7 @@ ${this._shellFrameClose()}`;
         try {
             let html = '';
             if (this._mode === 'bulk-move') html = this._buildBulkMoveHTML();
+            else if (this._mode === 'bulk-delete') html = this._buildBulkDeleteHTML();
             else if (this._mode === 'assign-parent') html = this._buildAssignParentHTML();
             else if (this._mode === 'tag-rename') html = this._buildTagRenameHTML();
             else if (this._mode === 'tag-review') html = this._buildTagReviewHTML();
@@ -2158,6 +2189,7 @@ ${this._shellFrameClose()}`;
                     if (this._mode === 'tag-merge' && next !== 'tag-merge') this._resetTagMergeState();
                     if (next === 'home') {
                         if (this._mode === 'bulk-move') await this._resetBulkMoveForm();
+                        if (this._mode === 'bulk-delete') await this._resetBulkDeleteForm();
                         if (this._mode === 'assign-parent') this._resetAssignForm();
                         if (this._mode === 'tag-rename' || this._mode === 'tag-review' || this._mode === 'tag-analyzer') this._resetTagForm();
                     }
@@ -2165,6 +2197,7 @@ ${this._shellFrameClose()}`;
                     this._settings.defaultMode = next;
                     this._saveSettings();
                     if (next === 'bulk-move') await this._ensureBulkMoveLoaded();
+                    if (next === 'bulk-delete') await this._ensureBulkDeleteLoaded();
                     if (next === 'assign-parent') await this._ensureAssignLoaded();
                     if (next === 'tag-rename' || next === 'tag-review' || next === 'tag-analyzer' || next === 'tag-merge') await this._ensureTagLoaded(true);
                     if (this._panel) this._render(this._panel);
@@ -2299,6 +2332,21 @@ ${this._shellFrameClose()}`;
                 }
                 case 'bm-preview': await this._previewBulkMove(); if (this._panel) this._render(this._panel); break;
                 case 'run-bulk-move': await this._runBulkMove(); if (this._panel) this._render(this._panel); break;
+                case 'bd-select-all': for (const rec of this._bulkDeleteState.filtered) this._bulkDeleteState.selectedGuids.add(rec.guid); if (this._panel) this._render(this._panel); break;
+                case 'bd-select-none': this._bulkDeleteState.selectedGuids.clear(); this._applyBulkDeleteFilter(); if (this._panel) this._render(this._panel); break;
+                case 'bd-toggle': { const g = target.dataset.guid; if (g) { if (target.checked) this._bulkDeleteState.selectedGuids.add(g); else this._bulkDeleteState.selectedGuids.delete(g); this._applyBulkDeleteFilter(); if (this._panel) this._render(this._panel); } break; }
+                case 'bd-refresh': {
+                    await this._loadBulkDeleteRecords();
+                    const stBd = this._bulkDeleteState;
+                    const n = Array.isArray(stBd.filtered) ? stBd.filtered.length : (Array.isArray(stBd.records) ? stBd.records.length : 0);
+                    const msg = `Bulk delete: record list refreshed (${n} shown).`;
+                    this._logRow('bulk-delete', 'applied', { recordGuid: '', recordName: '' }, msg);
+                    this._setStatus(msg, { title: 'Bulk delete', logged: true });
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'bd-preview': await this._previewBulkDelete(); if (this._panel) this._render(this._panel); break;
+                case 'run-bulk-delete': await this._runBulkDelete(); if (this._panel) this._render(this._panel); break;
                 case 'ap-toggle': { const row = this._assignState.rows.find(r => r.guid === target.dataset.guid); if (row) { row.checked = !!target.checked; if (this._panel) this._render(this._panel); } break; }
                 case 'ap-parent-pick': { const picked = this._assignState.recordMap.get(target.dataset.guid); if (picked) { this._assignState.parentGuid = picked.guid; this._assignState.parentQuery = picked.fullTitle; this._assignState.parentSearchOpen = false; this._assignState.parentSuggestActiveIndex = -1; this._rebuildAssignRows(); if (this._panel) this._render(this._panel); } break; }
                 case 'ap-parent-clear': this._assignState.parentGuid = ''; this._assignState.parentQuery = ''; this._assignState.parentSearchOpen = false; this._assignState.parentSuggestActiveIndex = -1; this._rebuildAssignRows(); if (this._panel) this._render(this._panel); break;
@@ -2882,6 +2930,30 @@ ${this._shellFrameClose()}`;
         if (bmOnly) bmOnly.addEventListener('change', () => { this._bulkMoveState.onlySelected = !!bmOnly.checked; this._settings.bulkOnlySelectedDefault = !!bmOnly.checked; this._saveSettings(); this._applyBulkMoveFilter(); if (this._panel) this._render(this._panel); }, { signal });
         const bmFilter = el.querySelector('.nm-bm-filter');
         if (bmFilter) bmFilter.addEventListener('input', () => { this._bulkMoveState.filterText = bmFilter.value; this._applyBulkMoveFilter(); this._scheduleDebouncedRender(); }, { signal });
+        const bdSource = el.querySelector('.nm-bd-source');
+        if (bdSource) bdSource.addEventListener('change', async () => {
+            this._bulkDeleteState.sourceGuid = bdSource.value;
+            this._bulkDeleteState.parentGuid = '';
+            await this._loadBulkDeleteRecords();
+            if (this._panel) this._render(this._panel);
+        }, { signal });
+        const bdSub = el.querySelector('.nm-bd-sub-filter');
+        if (bdSub) bdSub.addEventListener('change', () => {
+            this._bulkDeleteState.subPageFilter = bdSub.value || 'all';
+            if (this._bulkDeleteState.subPageFilter !== 'match-parent') this._bulkDeleteState.parentGuid = '';
+            this._applyBulkDeleteFilter();
+            if (this._panel) this._render(this._panel);
+        }, { signal });
+        const bdParent = el.querySelector('.nm-bd-parent');
+        if (bdParent) bdParent.addEventListener('change', () => {
+            this._bulkDeleteState.parentGuid = bdParent.value || '';
+            this._applyBulkDeleteFilter();
+            if (this._panel) this._render(this._panel);
+        }, { signal });
+        const bdOnly = el.querySelector('.nm-bd-only-selected');
+        if (bdOnly) bdOnly.addEventListener('change', () => { this._bulkDeleteState.onlySelected = !!bdOnly.checked; this._settings.bulkOnlySelectedDefault = !!bdOnly.checked; this._saveSettings(); this._applyBulkDeleteFilter(); if (this._panel) this._render(this._panel); }, { signal });
+        const bdFilter = el.querySelector('.nm-bd-filter');
+        if (bdFilter) bdFilter.addEventListener('input', () => { this._bulkDeleteState.filterText = bdFilter.value; this._applyBulkDeleteFilter(); this._scheduleDebouncedRender(); }, { signal });
 
         const apParent = el.querySelector('.nm-ap-parent-search');
         if (apParent) {
@@ -3409,6 +3481,47 @@ ${this._shellFrameClose()}`;
         const bulkApplyMsg = `Bulk move apply complete: ${ok} ok, ${fail} failed.`;
         this._logRow('bulk-move', 'summary', { recordGuid: '', recordName: '' }, bulkApplyMsg);
         this._setStatus(bulkApplyMsg, { title: 'Bulk move', logged: true });
+        st.previewRows = [];
+        st.running = false;
+    }
+
+    async _previewBulkDelete() {
+        const st = this._bulkDeleteState;
+        const source = this._bulkDeleteCollectionByGuid(st.sourceGuid);
+        if (!source) { this._setStatus('Select a source collection first.'); return; }
+        const selected = st.records.filter(r => st.selectedGuids.has(r.guid));
+        if (!selected.length) { this._setStatus('Select at least one record to preview delete.'); return; }
+        st.previewRows = selected.map(r => ({ operation: 'bulk-delete', recordGuid: r.guid, recordName: r.name, action: 'trash', before: source.name, after: 'Trash' }));
+        const previewSummary = `Preview ready: ${st.previewRows.length} trash move(s).`;
+        this._logRow('bulk-delete', 'preview', { recordGuid: '', recordName: '' }, previewSummary);
+        this._setStatus(previewSummary, { title: 'Bulk delete', logged: true });
+    }
+
+    async _runBulkDelete() {
+        const st = this._bulkDeleteState;
+        if (!st.previewRows.length) await this._previewBulkDelete();
+        if (!st.previewRows.length) return;
+        const confirmed = confirm(`Move ${st.previewRows.length} selected note(s) to Trash?`);
+        if (!confirmed) return;
+        st.running = true;
+        let ok = 0;
+        let fail = 0;
+        for (const row of st.previewRows) {
+            const rec = st.records.find(r => r.guid === row.recordGuid);
+            if (!rec) continue;
+            try {
+                await Promise.resolve(rec.raw.trash?.());
+                ok++;
+                this._logRow('bulk-delete', 'applied', row, 'Moved to Trash');
+            } catch (e) {
+                fail++;
+                this._logRow('bulk-delete', 'failed', row, String(e?.message || e));
+            }
+        }
+        await this._loadBulkDeleteRecords();
+        const bulkApplyMsg = `Bulk delete apply complete: ${ok} ok, ${fail} failed.`;
+        this._logRow('bulk-delete', 'summary', { recordGuid: '', recordName: '' }, bulkApplyMsg);
+        this._setStatus(bulkApplyMsg, { title: 'Bulk delete', logged: true });
         st.previewRows = [];
         st.running = false;
     }
@@ -6095,8 +6208,12 @@ ${this._shellFrameClose()}`;
         if (!logged) this._toast(title, msg, autoDestroyTime);
     }
 
-    _bulkCollectionByGuid(guid) {
-        return this._bulkMoveState.collections.find(c => c.guid === guid) || null;
+    _bulkCollectionByGuid(guid, state = this._bulkMoveState) {
+        return state.collections.find(c => c.guid === guid) || null;
+    }
+
+    _bulkDeleteCollectionByGuid(guid) {
+        return this._bulkCollectionByGuid(guid, this._bulkDeleteState);
     }
 
     async _ensureBulkMoveLoaded() {
@@ -6114,6 +6231,22 @@ ${this._shellFrameClose()}`;
         }
         st.initialized = true;
         this._setStatus('You need at least two non-journal collections to use bulk move.');
+    }
+
+    async _ensureBulkDeleteLoaded() {
+        const st = this._bulkDeleteState;
+        if (st.initialized) return;
+        const collections = (await this.plugin.data.getAllCollections?.()) || [];
+        st.collections = collections.filter(c => !c.isJournalPlugin?.()).map(c => ({ guid: c.getGuid?.(), name: c.getName?.() || 'Untitled Collection', raw: c })).filter(c => !!c.guid);
+        if (st.collections.length >= 1) {
+            st.sourceGuid = st.collections[0].guid;
+            st.onlySelected = !!this._settings.bulkOnlySelectedDefault;
+            await this._loadBulkDeleteRecords();
+            st.initialized = true;
+            return;
+        }
+        st.initialized = true;
+        this._setStatus('You need at least one non-journal collection to use bulk delete.');
     }
 
     async _loadBulkMoveRecords() {
@@ -6134,10 +6267,61 @@ ${this._shellFrameClose()}`;
         }
     }
 
+    async _loadBulkDeleteRecords() {
+        const st = this._bulkDeleteState;
+        const source = this._bulkDeleteCollectionByGuid(st.sourceGuid);
+        if (!source) { st.records = []; st.filtered = []; st.selectedGuids.clear(); return; }
+        st.loading = true;
+        st.selectedGuids.clear();
+        try {
+            const recs = (await source.raw.getAllRecords?.()) || [];
+            st.records = recs.map(r => {
+                let parent = null;
+                try {
+                    parent = r.getSubPageOf?.() || null;
+                } catch (_) {
+                    parent = null;
+                }
+                const parentGuid = parent?.guid || '';
+                return {
+                    guid: r.guid,
+                    name: r.getName?.() || 'Untitled',
+                    raw: r,
+                    hasParent: !!parentGuid,
+                    parentGuid,
+                };
+            }).sort((a, b) => a.name.localeCompare(b.name));
+            st.parentOptions = st.records.map(r => ({ guid: r.guid, name: r.name }));
+        } catch (e) {
+            st.records = [];
+            st.parentOptions = [];
+            this._setStatus(`Error loading records: ${String(e?.message || e)}`);
+        } finally {
+            st.loading = false;
+            this._applyBulkDeleteFilter();
+        }
+    }
+
     _applyBulkMoveFilter() {
         const st = this._bulkMoveState;
         const q = (st.filterText || '').trim().toLowerCase();
         st.filtered = st.records.filter(r => (!q || r.name.toLowerCase().includes(q)) && (!st.onlySelected || st.selectedGuids.has(r.guid)));
+    }
+
+    _applyBulkDeleteFilter() {
+        const st = this._bulkDeleteState;
+        const q = (st.filterText || '').trim().toLowerCase();
+        st.filtered = st.records.filter(r => {
+            if (q && !r.name.toLowerCase().includes(q)) return false;
+            if (st.onlySelected && !st.selectedGuids.has(r.guid)) return false;
+            if (st.subPageFilter === 'children-only' && !r.hasParent) return false;
+            if (st.subPageFilter === 'root-only' && r.hasParent) return false;
+            if (st.subPageFilter === 'match-parent') {
+                const pg = String(st.parentGuid || '').trim();
+                if (!pg || r.parentGuid !== pg) return false;
+            }
+            return true;
+        });
     }
 
     async _resetBulkMoveForm() {
@@ -6150,6 +6334,20 @@ ${this._shellFrameClose()}`;
             st.sourceGuid = st.collections[0].guid;
             st.targetGuid = st.collections[1].guid;
             await this._loadBulkMoveRecords();
+        }
+    }
+
+    async _resetBulkDeleteForm() {
+        const st = this._bulkDeleteState;
+        st.filterText = '';
+        st.subPageFilter = 'all';
+        st.parentGuid = '';
+        st.onlySelected = !!this._settings.bulkOnlySelectedDefault;
+        st.selectedGuids.clear();
+        st.previewRows = [];
+        if (st.collections.length >= 1) {
+            st.sourceGuid = st.collections[0].guid;
+            await this._loadBulkDeleteRecords();
         }
     }
 
@@ -6313,7 +6511,7 @@ ${this._shellFrameClose()}`;
     _captureFocusState(rootEl) {
         const active = document.activeElement;
         if (!(active instanceof HTMLInputElement) || !rootEl.contains(active)) return null;
-        const known = ['.nm-bm-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-tr-exclude-picker-filter', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter', '.nm-rt-tag', '.nm-rt-filter', '.nm-at-tag', '.nm-at-record-filter', '.nm-at-table-filter', '.nm-ta-target-input', '.nm-ta-add-input', '.nm-ta-add-picker-filter', '.nm-home-search-q'];
+        const known = ['.nm-bm-filter', '.nm-bd-filter', '.nm-ap-filter', '.nm-ap-parent-search', '.nm-tr-old', '.nm-tr-new', '.nm-tr-excluded-collections', '.nm-tr-exclude-picker-filter', '.nm-rg-source', '.nm-rg-target', '.nm-rg-filter', '.nm-rt-tag', '.nm-rt-filter', '.nm-at-tag', '.nm-at-record-filter', '.nm-at-table-filter', '.nm-ta-target-input', '.nm-ta-add-input', '.nm-ta-add-picker-filter', '.nm-home-search-q'];
         const selector = known.find(sel => active.matches(sel));
         if (!selector) return null;
         return { selector, selectionStart: active.selectionStart, selectionEnd: active.selectionEnd };

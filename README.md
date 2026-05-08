@@ -4,8 +4,15 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Version
 
-- **Current version:** `1.0.11`
+- **Current version:** `1.0.12`
 - **Full per-release notes:** [changelog.md](./changelog.md) (detailed archive). Current behavior is also described under **Feature Overview** below.
+
+### What’s new in 1.0.12
+
+- **Bulk tools split:** The previous **Bulk move** entry is now **Move**, and a new sibling **Delete** view is added under the **Bulk** group.
+- **Delete notes (bulk):** Uses the same list/filter/select UX as Move (source collection, title filter, show-only-selected, preview, refresh) and applies with **Move to Trash** via `record.trash()`, including row-level log entries and a summary line.
+- **Delete filters:** Added a relationship dropdown for **All notes**, **Only notes with parent**, **Only root notes**, and **Match selected parent**; when matching parent, a parent-note picker appears.
+- **Naming updates:** Menu/command labels now use **Move notes** and **Delete notes**; Home quick-search collection hits now route to **Move** with that source preselected.
 
 ### What’s new in 1.0.11
 
@@ -60,7 +67,8 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 (Tools appear in the panel **navigation bar** by group. The header **menu** (☰) lists **Home**, then the same tools in **A–Z** order by label, then **Help** — not a separate mode, but a short overview dialog.)
 
 - **Assign subpages**
-- **Bulk move notes**
+- **Move notes**
+- **Delete notes**
 - **Tag analyzer**
 - **Tag merge**
 - **Tag rename (quick)**
@@ -75,7 +83,8 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - Command palette entries for:
   - `Notes Manager: Open`
   - `Notes Manager: Assign subpages`
-  - `Notes Manager: Bulk move notes`
+  - `Notes Manager: Move notes`
+  - `Notes Manager: Delete notes`
   - `Notes Manager: Tag analyzer`
   - `Notes Manager: Tag merge`
   - `Notes Manager: Tag rename (quick)`
@@ -92,9 +101,9 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - **When you click a row**
   - **Note** (notes-only list or **Notes** section): Opens that note in **another** Thymer panel (the plugin creates/opens an edit panel and navigates to that record — same helper as Review Grid **open in other panel**).
   - **Tag** (**Tags** section): Leaves Home and opens **Tag rename (quick)** with **Current tag** set to the clicked tag (with `#` as in that tool).
-  - **Collection** (**Collections** section): Leaves Home and opens **Bulk move** with that collection selected as **source**, provided it is still in Bulk move’s loaded source list.
+  - **Collection** (**Collections** section): Leaves Home and opens **Move** with that collection selected as **source**, provided it is still in the loaded source list.
 
-### Bulk Move Notes
+### Move Notes
 
 - Source/target collection selectors.
 - Title filter and optional **show only selected** mode.
@@ -102,6 +111,17 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - Preview-first workflow, then apply.
 - Row-level result logging for moved/failed records.
 - Refresh action updates **`nm-status`** and appends a **review log** line (no separate completion toast).
+
+### Delete Notes
+
+- Source collection selector.
+- Sub-page relationship filter: **All**, **Only notes with parent**, **Only root notes**, **Match selected parent**.
+- Parent-note selector appears when **Match selected parent** is chosen.
+- Title filter and optional **show only selected** mode.
+- Select all/select none for visible rows.
+- Preview-first workflow, then **Move to Trash**.
+- Row-level result logging for moved-to-trash / failed records.
+- Refresh action updates **`nm-status`** and appends a **review log** line.
 
 ### Assign Subpages
 
@@ -183,7 +203,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 - Local settings persisted between sessions for:
   - Default mode
-  - Bulk move display preference
+  - Bulk move/delete display preference
   - Assign-subpages hide-child-of preference
   - Tag matching options and excluded collections
   - Review log collapsed state
@@ -214,6 +234,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - **Preview shows no rows**
   - Confirm required inputs are set (source/target, parent note, current/new tag, or source tag).
   - Clear filters that may hide rows (`Filter`, `Show only selected`, `Hide child of:`).
+  - In **Delete Notes**, if **Sub-page filter** is set to **Match selected parent**, choose a parent in the **Parent note** dropdown; otherwise no rows are shown.
 
 - **Apply appears to do nothing**
   - Run **Preview** first and confirm rows are included.
