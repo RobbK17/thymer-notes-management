@@ -4,7 +4,27 @@ This file holds the **full** per-release notes that previously lived under **Ver
 
 ---
 
-- **Current version:** `1.0.14`
+- **Current version:** `1.0.15`
+
+### What’s new in 1.0.15
+
+**Delete notes tree-mode expansion**
+
+- Bulk Delete now uses explicit tree selection with per-row **children** subtree checkboxes (tri-state) plus a header-level **All children** toggle for visible parent rows.
+
+- In **All notes**, the list renders as an always-expanded indented tree with path-preserving filtering so matched descendants keep ancestor context visible.
+
+- In non-`all` sub-page modes, row chevrons expand/collapse descendants; expand behavior was fixed so descendants render correctly in **Only parent notes** and **Match selected parent**.
+
+- Header parent toggle semantics changed: **All parents** now targets visible parent/root rows only.
+
+- Scope counters were updated for clarity: `visible`, `selected parents`, `selected children`, and `total selected`.
+
+- Sub-page filter label **Only root notes** was renamed to **Only parent notes**.
+
+- In **Only notes with parent**, row titles now include parent context as `(parent: <title>)`.
+
+- Parent selector options are now limited to true parent records and sorted alphabetically.
 
 ### What’s new in 1.0.14
 

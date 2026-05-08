@@ -1,7 +1,7 @@
 /** @see thymerapp/thymer-plugin-sdk types.d.ts PROP_TYPE_HASHTAG, PLUGIN_LINE_ITEM_SEGMENT_TYPE_HASHTAG */
 const THYMER_TYPE_HASHTAG = 'hashtag';
 
-const NOTES_MANAGER_VERSION = '1.0.14';
+const NOTES_MANAGER_VERSION = '1.0.15';
 
 /** Max characters of body text indexed per record for Home quick search (performance). */
 const NM_HOME_SEARCH_BODY_MAX = 16000;
@@ -88,6 +88,7 @@ class NotesManagerPanel {
             childrenByParentGuid: new Map(),
             filtered: [],
             selectedGuids: new Set(),
+            expandedGuids: new Set(),
             filterText: '',
             subPageFilter: 'all',
             parentGuid: '',
@@ -425,12 +426,14 @@ class NotesManagerPanel {
         if (!this._bulkDeleteConfirmOpen || this._mode !== 'bulk-delete') return '';
         const st = this._bulkDeleteState;
         const total = Array.isArray(st.previewRows) ? st.previewRows.length : 0;
-        const roots = Array.isArray(st.records) ? st.records.filter(r => st.selectedGuids.has(r.guid)).length : 0;
+        const selectedRows = Array.isArray(st.records) ? st.records.filter(r => st.selectedGuids.has(r.guid)) : [];
+        const selectedSet = new Set(selectedRows.map(r => r.guid));
+        const roots = selectedRows.filter(r => !this._bulkDeleteHasSelectedAncestor(r.guid, selectedSet)).length;
         const descendants = Math.max(0, total - roots);
         const needsTyped = total >= NM_BULK_DELETE_TYPED_CONFIRM_THRESHOLD;
         const typedOk = !needsTyped || String(this._bulkDeleteConfirmText || '').trim() === 'TRASH';
-        const rootLabel = roots === 1 ? 'root' : 'roots';
-        const descendantLabel = descendants === 1 ? 'descendant' : 'descendants';
+        const rootLabel = roots === 1 ? 'parent' : 'parents';
+        const descendantLabel = descendants === 1 ? 'child' : 'children';
         const recordLabel = total === 1 ? 'record' : 'records';
         const summary = `${roots} ${rootLabel} selected, ${descendants} ${descendantLabel}, ${total} total ${recordLabel} to trash.`;
         const typedField = needsTyped
@@ -936,33 +939,51 @@ ${pickerHtml}
         const parentOpts = st.parentOptions.map(p => `<option value="${this._escape(p.guid)}"${st.parentGuid === p.guid ? ' selected' : ''}>${this._escape(p.name)}</option>`).join('');
         const parentHidden = st.subPageFilter !== 'match-parent' ? ' hidden' : '';
         const parentDisabled = st.subPageFilter === 'match-parent' ? '' : ' disabled';
-        const childrenEligible = st.filtered.filter(r => r.hasChildren);
-        const childrenChecked = childrenEligible.filter(r => r.deleteChildren).length;
-        const allChildrenChecked = childrenEligible.length > 0 && childrenChecked === childrenEligible.length;
-        const childrenIndeterminate = childrenEligible.length > 0 && childrenChecked > 0 && childrenChecked < childrenEligible.length;
-        const childrenAllDisabled = childrenEligible.length === 0 ? ' disabled' : '';
-        const childrenAllChecked = allChildrenChecked ? ' checked' : '';
-        const childrenAllInd = childrenIndeterminate ? '1' : '0';
-        const visibleSelected = st.filtered.filter(r => st.selectedGuids.has(r.guid)).length;
-        const allVisibleChecked = st.filtered.length > 0 && visibleSelected === st.filtered.length;
-        const visibleIndeterminate = st.filtered.length > 0 && visibleSelected > 0 && visibleSelected < st.filtered.length;
-        const visibleAllDisabled = st.filtered.length === 0 ? ' disabled' : '';
+        const visibleRows = this._bulkDeleteFlattenVisibleRows();
+        const visibleGuids = visibleRows.map(v => v.guid);
+        const visibleRootRows = visibleRows.filter(v => v.depth === 0);
+        const visibleRootGuids = visibleRootRows.map(v => v.guid);
+        const visibleSelected = visibleRootGuids.filter(guid => st.selectedGuids.has(guid)).length;
+        const allVisibleChecked = visibleRootGuids.length > 0 && visibleSelected === visibleRootGuids.length;
+        const visibleIndeterminate = visibleRootGuids.length > 0 && visibleSelected > 0 && visibleSelected < visibleRootGuids.length;
+        const visibleAllDisabled = visibleRootGuids.length === 0 ? ' disabled' : '';
         const visibleAllChecked = allVisibleChecked ? ' checked' : '';
         const visibleAllInd = visibleIndeterminate ? '1' : '0';
-        const childRecordsTotal = childrenEligible.reduce((sum, r) => sum + (Number(r.descendantCount) || 0), 0);
-        const childRecordsSelected = childrenEligible.reduce(
-            (sum, r) => sum + (r.deleteChildren ? (Number(r.descendantCount) || 0) : 0),
-            0,
-        );
-        const rows = st.filtered
-            .map((rec) => {
-                const childrenCell = rec.hasChildren
-                    ? `<label class="nm-inline" style="gap:4px;white-space:nowrap;align-items:center;flex:0 0 220px;justify-content:flex-start;"><input type="checkbox" data-action="bd-toggle-children" data-guid="${this._escape(rec.guid)}"${rec.deleteChildren ? ' checked' : ''}><span class="nm-muted">Delete children (${rec.descendantCount})</span></label>`
-                    : '<span style="flex:0 0 220px;"></span>';
-                return `<div class="nm-row"><input type="checkbox" data-action="bd-toggle" data-guid="${this._escape(rec.guid)}"${st.selectedGuids.has(rec.guid) ? ' checked' : ''}><span class="nm-row-name" style="flex:0 1 58%;max-width:58%;" title="${this._escape(rec.name)}">${this._escape(rec.name)}</span>${childrenCell}<span class="nm-row-meta" style="flex:1 1 auto;text-align:right;">${this._escape(rec.guid)}</span></div>`;
-            })
-            .join('');
-        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Delete Notes</p><p class="nm-text">Preview first, then move selected notes to Trash.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bd-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Sub-page filter</label><select class="nm-select nm-bd-sub-filter"><option value="all"${st.subPageFilter === 'all' ? ' selected' : ''}>All notes</option><option value="children-only"${st.subPageFilter === 'children-only' ? ' selected' : ''}>Only notes with parent</option><option value="root-only"${st.subPageFilter === 'root-only' ? ' selected' : ''}>Only root notes</option><option value="match-parent"${st.subPageFilter === 'match-parent' ? ' selected' : ''}>Match selected parent</option></select></div><div class="nm-field"${parentHidden}><label class="nm-label">Parent note</label><select class="nm-select nm-bd-parent"${parentDisabled}><option value="">Select parent...</option>${parentOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bd-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bd-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline" style="width:100%;gap:8px;align-items:center;"><div class="nm-inline" style="flex:0 1 58%;max-width:58%;gap:8px;align-items:center;min-width:260px;"><label class="nm-inline" style="gap:4px;align-items:center;white-space:nowrap;"><input type="checkbox" class="nm-bd-select-all-visible" data-action="bd-toggle-visible-all" data-indeterminate="${visibleAllInd}"${visibleAllChecked}${visibleAllDisabled}><span class="nm-muted">Select visible</span></label><span class="nm-pill">${st.filtered.length} records</span><span class="nm-pill">${st.selectedGuids.size} selected</span></div><div class="nm-inline" style="flex:0 0 220px;gap:4px;align-items:center;justify-content:flex-start;"><label class="nm-inline" style="gap:4px;align-items:center;white-space:nowrap;"><input type="checkbox" class="nm-bd-children-all" data-action="bd-toggle-children-all" data-indeterminate="${childrenAllInd}"${childrenAllChecked}${childrenAllDisabled}><span class="nm-muted">Delete children (visible)</span></label></div><span class="nm-pill">${childRecordsTotal} records</span><span class="nm-pill">${childRecordsSelected} selected</span><span class="nm-muted" style="margin-left:auto;">${st.loading ? 'Loading records...' : ''}</span></div></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bd-preview">Preview</button><button class="nm-btn" data-action="run-bulk-delete"${st.running ? ' disabled' : ''}>Move to Trash</button><button class="nm-btn nm-btn--secondary" data-action="bd-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
+        const stats = this._bulkDeleteVisibleSelectionStats(visibleRows);
+        const subtreeTargets = new Set();
+        for (const entry of visibleRows) {
+            if (!entry.row.hasChildren) continue;
+            for (const guid of this._bulkDeleteGetDescendantGuids(entry.guid)) subtreeTargets.add(guid);
+        }
+        const subtreeTotal = subtreeTargets.size;
+        let subtreeSelected = 0;
+        for (const guid of subtreeTargets) if (st.selectedGuids.has(guid)) subtreeSelected += 1;
+        const subtreeAllChecked = subtreeTotal > 0 && subtreeSelected === subtreeTotal;
+        const subtreeIndeterminate = subtreeTotal > 0 && subtreeSelected > 0 && subtreeSelected < subtreeTotal;
+        const subtreeAllDisabled = subtreeTotal === 0 ? ' disabled' : '';
+        const subtreeAllCheckedAttr = subtreeAllChecked ? ' checked' : '';
+        const subtreeAllInd = subtreeIndeterminate ? '1' : '0';
+        const isAllMode = st.subPageFilter === 'all';
+        const rows = visibleRows.map((entry) => {
+            const rec = entry.row;
+            const indentPx = entry.depth * 16;
+            const checkboxIndentPx = entry.depth > 0 ? 16 : 0;
+            const isExpanded = rec.hasChildren && st.expandedGuids.has(rec.guid);
+            const chevron = (!isAllMode && rec.hasChildren)
+                ? `<button class="nm-btn nm-btn--secondary" data-action="bd-toggle-expand" data-guid="${this._escape(rec.guid)}" style="padding:1px 6px;min-width:22px;line-height:1">${isExpanded ? '▾' : '▸'}</button>`
+                : '<span style="display:inline-block;width:22px;"></span>';
+            const parentName = rec.parentGuid ? (st.recordByGuid.get(rec.parentGuid)?.name || '') : '';
+            const showParentSuffix = st.subPageFilter === 'children-only' && !!parentName;
+            const titleText = showParentSuffix ? `${rec.name} (parent: ${parentName})` : rec.name;
+            const subtreeState = rec.hasChildren ? this._bulkDeleteSubtreeSelectionState(rec.guid) : 'none';
+            const subtreeChecked = subtreeState === 'all' ? ' checked' : '';
+            const subtreeInd = subtreeState === 'some' ? '1' : '0';
+            const subtreeControl = rec.hasChildren
+                ? `<label class="nm-inline" style="gap:4px;align-items:center;white-space:nowrap;flex:0 0 118px;justify-content:flex-start;"><input type="checkbox" class="nm-bd-subtree-row" data-action="bd-toggle-subtree" data-guid="${this._escape(rec.guid)}" data-indeterminate="${subtreeInd}"${subtreeChecked}><span class="nm-muted">children</span></label>`
+                : '<span style="display:inline-block;flex:0 0 118px;"></span>';
+            return `<div class="nm-row"><span style="display:inline-flex;flex:0 0 34px;align-items:center;justify-content:flex-start;padding-left:${checkboxIndentPx}px;"><input type="checkbox" data-action="bd-toggle" data-guid="${this._escape(rec.guid)}"${st.selectedGuids.has(rec.guid) ? ' checked' : ''}></span><div class="nm-inline" style="flex:0 1 58%;max-width:58%;gap:6px;align-items:center;padding-left:${indentPx}px;">${chevron}<span class="nm-row-name" title="${this._escape(titleText)}">${this._escape(titleText)}</span></div>${subtreeControl}<span class="nm-row-meta" style="flex:1 1 auto;text-align:right;">${this._escape(rec.guid)}</span></div>`;
+        }).join('');
+        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Delete Notes</p><p class="nm-text">Preview first, then move selected notes to Trash.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bd-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Sub-page filter</label><select class="nm-select nm-bd-sub-filter"><option value="all"${st.subPageFilter === 'all' ? ' selected' : ''}>All notes</option><option value="children-only"${st.subPageFilter === 'children-only' ? ' selected' : ''}>Only notes with parent</option><option value="root-only"${st.subPageFilter === 'root-only' ? ' selected' : ''}>Only parent notes</option><option value="match-parent"${st.subPageFilter === 'match-parent' ? ' selected' : ''}>Match selected parent</option></select></div><div class="nm-field"${parentHidden}><label class="nm-label">Parent note</label><select class="nm-select nm-bd-parent"${parentDisabled}><option value="">Select parent...</option>${parentOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bd-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bd-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline" style="width:100%;gap:8px;align-items:center;"><label class="nm-inline" style="gap:4px;align-items:center;white-space:nowrap;"><input type="checkbox" class="nm-bd-select-all-visible" data-action="bd-toggle-visible-all" data-indeterminate="${visibleAllInd}"${visibleAllChecked}${visibleAllDisabled}><span class="nm-muted">All parents</span></label><label class="nm-inline" style="gap:4px;align-items:center;white-space:nowrap;"><input type="checkbox" class="nm-bd-subtree-all" data-action="bd-toggle-subtree-visible" data-indeterminate="${subtreeAllInd}"${subtreeAllCheckedAttr}${subtreeAllDisabled}><span class="nm-muted">All children</span></label><span class="nm-pill">${stats.visible} visible</span><span class="nm-pill">${stats.selectedRoots} selected parents</span><span class="nm-pill">${stats.selectedDescendants} selected children</span><span class="nm-pill">${stats.selectedTotal} total selected</span><span class="nm-muted" style="margin-left:auto;">${st.loading ? 'Loading records...' : ''}</span></div></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bd-preview">Preview</button><button class="nm-btn" data-action="run-bulk-delete"${st.running ? ' disabled' : ''}>Move to Trash</button><button class="nm-btn nm-btn--secondary" data-action="bd-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
     }
 
     _buildAssignParentHTML() {
@@ -2426,33 +2447,54 @@ ${this._shellFrameClose()}`;
                 case 'run-bulk-move': await this._runBulkMove(); if (this._panel) this._render(this._panel); break;
                 case 'bd-toggle-visible-all': {
                     const checked = !!target.checked;
+                    const visibleRows = this._bulkDeleteFlattenVisibleRows();
+                    const visibleRoots = visibleRows.filter(v => v.depth === 0);
                     if (checked) {
-                        for (const rec of this._bulkDeleteState.filtered) this._bulkDeleteState.selectedGuids.add(rec.guid);
+                        for (const rec of visibleRoots) this._bulkDeleteState.selectedGuids.add(rec.guid);
                     } else {
-                        for (const rec of this._bulkDeleteState.filtered) this._bulkDeleteState.selectedGuids.delete(rec.guid);
+                        for (const rec of visibleRoots) this._bulkDeleteState.selectedGuids.delete(rec.guid);
                     }
                     this._applyBulkDeleteFilter();
                     if (this._panel) this._render(this._panel);
                     break;
                 }
                 case 'bd-toggle': { const g = target.dataset.guid; if (g) { if (target.checked) this._bulkDeleteState.selectedGuids.add(g); else this._bulkDeleteState.selectedGuids.delete(g); this._applyBulkDeleteFilter(); if (this._panel) this._render(this._panel); } break; }
-                case 'bd-toggle-children': {
-                    const g = target.dataset.guid;
-                    const row = g ? this._bulkDeleteState.records.find(r => r.guid === g) : null;
-                    if (row && row.hasChildren) {
-                        row.deleteChildren = !!target.checked;
-                        if (this._panel) this._render(this._panel);
+                case 'bd-toggle-subtree': {
+                    const g = String(target.dataset.guid || '').trim();
+                    if (!g) break;
+                    const checked = !!target.checked;
+                    const descendants = this._bulkDeleteGetDescendantGuids(g);
+                    for (const guid of descendants) {
+                        if (checked) this._bulkDeleteState.selectedGuids.add(guid);
+                        else this._bulkDeleteState.selectedGuids.delete(guid);
                     }
+                    this._applyBulkDeleteFilter();
+                    if (this._panel) this._render(this._panel);
                     break;
                 }
-                case 'bd-toggle-children-all': {
+                case 'bd-toggle-subtree-visible': {
                     const checked = !!target.checked;
-                    const st = this._bulkDeleteState;
-                    const rows = st.filtered.filter(r => r.hasChildren);
-                    for (const row of rows) {
-                        if (!row.hasChildren) continue;
-                        row.deleteChildren = checked;
+                    const visibleRows = this._bulkDeleteFlattenVisibleRows();
+                    const descSet = new Set();
+                    for (const entry of visibleRows) {
+                        if (!entry.row.hasChildren) continue;
+                        for (const guid of this._bulkDeleteGetDescendantGuids(entry.guid)) descSet.add(guid);
                     }
+                    for (const guid of descSet) {
+                        if (checked) this._bulkDeleteState.selectedGuids.add(guid);
+                        else this._bulkDeleteState.selectedGuids.delete(guid);
+                    }
+                    this._applyBulkDeleteFilter();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
+                case 'bd-toggle-expand': {
+                    if (this._bulkDeleteState.subPageFilter === 'all') break;
+                    const g = String(target.dataset.guid || '').trim();
+                    if (!g) break;
+                    const set = this._bulkDeleteState.expandedGuids;
+                    if (set.has(g)) set.delete(g);
+                    else set.add(g);
                     if (this._panel) this._render(this._panel);
                     break;
                 }
@@ -3086,8 +3128,12 @@ ${this._shellFrameClose()}`;
         if (bdFilter) bdFilter.addEventListener('input', () => { this._bulkDeleteState.filterText = bdFilter.value; this._applyBulkDeleteFilter(); this._scheduleDebouncedRender(); }, { signal });
         const bdSelectAllVisible = el.querySelector('.nm-bd-select-all-visible');
         if (bdSelectAllVisible instanceof HTMLInputElement) bdSelectAllVisible.indeterminate = bdSelectAllVisible.dataset.indeterminate === '1';
-        const bdChildrenAll = el.querySelector('.nm-bd-children-all');
-        if (bdChildrenAll instanceof HTMLInputElement) bdChildrenAll.indeterminate = bdChildrenAll.dataset.indeterminate === '1';
+        const bdSubtreeAll = el.querySelector('.nm-bd-subtree-all');
+        if (bdSubtreeAll instanceof HTMLInputElement) bdSubtreeAll.indeterminate = bdSubtreeAll.dataset.indeterminate === '1';
+        el.querySelectorAll('.nm-bd-subtree-row').forEach((node) => {
+            if (!(node instanceof HTMLInputElement)) return;
+            node.indeterminate = node.dataset.indeterminate === '1';
+        });
 
         const apParent = el.querySelector('.nm-ap-parent-search');
         if (apParent) {
@@ -3623,14 +3669,15 @@ ${this._shellFrameClose()}`;
         const st = this._bulkDeleteState;
         const source = this._bulkDeleteCollectionByGuid(st.sourceGuid);
         if (!source) { this._setStatus('Select a source collection first.'); return; }
-        const selectedRoots = st.records.filter(r => st.selectedGuids.has(r.guid));
+        const selectedRows = st.records.filter(r => st.selectedGuids.has(r.guid));
+        const selectedSet = new Set(selectedRows.map(r => r.guid));
+        const selectedRoots = selectedRows.filter(r => !this._bulkDeleteHasSelectedAncestor(r.guid, selectedSet));
         if (!selectedRoots.length) { this._setStatus('Select at least one record to preview delete.'); return; }
         const planned = [];
         const plannedGuids = new Set();
         for (const root of selectedRoots) {
-            const ordered = root.deleteChildren
-                ? this._bulkDeleteCollectOrderedGuids(root.guid, st.childrenByParentGuid)
-                : [root.guid];
+            const ordered = this._bulkDeleteCollectOrderedGuids(root.guid, st.childrenByParentGuid)
+                .filter(guid => selectedSet.has(guid));
             for (const guid of ordered) {
                 if (plannedGuids.has(guid)) continue;
                 const row = st.recordByGuid.get(guid) || st.records.find(r => r.guid === guid);
@@ -3650,20 +3697,20 @@ ${this._shellFrameClose()}`;
         }
         st.previewRows = planned;
         const descendantCount = Math.max(0, st.previewRows.length - selectedRoots.length);
-        const rootLabel = selectedRoots.length === 1 ? 'root' : 'roots';
-        const descendantLabel = descendantCount === 1 ? 'descendant' : 'descendants';
+        const rootLabel = selectedRoots.length === 1 ? 'parent' : 'parents';
+        const descendantLabel = descendantCount === 1 ? 'child' : 'children';
         const recordLabel = st.previewRows.length === 1 ? 'record' : 'records';
         const previewSummary = `Preview ready: ${selectedRoots.length} ${rootLabel} selected, ${descendantCount} ${descendantLabel}, ${st.previewRows.length} total ${recordLabel} to trash.`;
         const rootLines = [];
         for (const root of selectedRoots) {
-            const descendants = Number(root.descendantCount) || 0;
-            if (!root.hasChildren || !root.deleteChildren) {
+            const ordered = this._bulkDeleteCollectOrderedGuids(root.guid, st.childrenByParentGuid)
+                .filter(guid => selectedSet.has(guid));
+            const childGuids = ordered.filter(guid => guid !== root.guid);
+            if (!childGuids.length) {
                 rootLines.push(`- ${root.name}`);
                 continue;
             }
-            rootLines.push(`- ${root.name} (self + ${descendants} descendant(s))`);
-            const ordered = this._bulkDeleteCollectOrderedGuids(root.guid, st.childrenByParentGuid);
-            const childGuids = ordered.filter(guid => guid !== root.guid);
+            rootLines.push(`- ${root.name} (parent + ${childGuids.length} child(ren))`);
             for (const childGuid of childGuids) {
                 const child = st.recordByGuid.get(childGuid);
                 if (!child) continue;
@@ -3671,7 +3718,7 @@ ${this._shellFrameClose()}`;
             }
         }
         const previewDetail = rootLines.length
-            ? `${previewSummary}\nPlanned roots and selected children:\n${rootLines.join('\n')}`
+            ? `${previewSummary}\nSelected parents and children:\n${rootLines.join('\n')}`
             : previewSummary;
         this._logRow('bulk-delete', 'preview', { recordGuid: '', recordName: '' }, previewDetail);
         this._setStatus(previewSummary, { title: 'Bulk delete', logged: true });
@@ -3702,7 +3749,6 @@ ${this._shellFrameClose()}`;
         let ok = 0;
         let fail = 0;
         const failedGuids = new Set();
-        const failedDeleteChildrenGuids = new Set();
         const trashedGuids = new Set();
         for (const row of st.previewRows) {
             if (trashedGuids.has(row.recordGuid)) continue;
@@ -3716,15 +3762,12 @@ ${this._shellFrameClose()}`;
             } catch (e) {
                 fail++;
                 failedGuids.add(row.rootGuid || row.recordGuid);
-                const rootRow = st.recordByGuid.get(row.rootGuid || row.recordGuid);
-                if (rootRow?.deleteChildren) failedDeleteChildrenGuids.add(rootRow.guid);
                 this._logRow('bulk-delete', 'failed', row, String(e?.message || e));
             }
             await Promise.resolve();
         }
         await this._loadBulkDeleteRecords({
             preserveSelectedGuids: failedGuids,
-            preserveDeleteChildrenGuids: failedDeleteChildrenGuids,
         });
         const bulkApplyMsg = `Bulk delete apply complete: ${ok} ok, ${fail} failed.`;
         this._logRow('bulk-delete', 'summary', { recordGuid: '', recordName: '' }, bulkApplyMsg);
@@ -3745,6 +3788,85 @@ ${this._shellFrameClose()}`;
         };
         walk(rootGuid);
         return ordered;
+    }
+
+    _bulkDeleteHasSelectedAncestor(guid, selectedGuids) {
+        const st = this._bulkDeleteState;
+        let cur = st.recordByGuid.get(guid);
+        const seen = new Set();
+        while (cur?.parentGuid && !seen.has(cur.parentGuid)) {
+            seen.add(cur.parentGuid);
+            if (selectedGuids.has(cur.parentGuid)) return true;
+            cur = st.recordByGuid.get(cur.parentGuid);
+        }
+        return false;
+    }
+
+    _bulkDeleteGetDescendantGuids(guid) {
+        const st = this._bulkDeleteState;
+        return this._bulkDeleteCollectOrderedGuids(guid, st.childrenByParentGuid)
+            .filter(childGuid => childGuid !== guid);
+    }
+
+    _bulkDeleteSubtreeSelectionState(guid) {
+        const st = this._bulkDeleteState;
+        const descendants = this._bulkDeleteGetDescendantGuids(guid);
+        if (!descendants.length) return 'none';
+        let selected = 0;
+        for (const childGuid of descendants) {
+            if (st.selectedGuids.has(childGuid)) selected += 1;
+        }
+        if (selected <= 0) return 'none';
+        if (selected >= descendants.length) return 'all';
+        return 'some';
+    }
+
+    _bulkDeleteVisibleSelectionStats(visibleRows) {
+        const st = this._bulkDeleteState;
+        const visibleSet = new Set(visibleRows.map(v => v.guid));
+        let selectedTotal = 0;
+        let selectedDescendants = 0;
+        for (const guid of visibleSet) {
+            if (!st.selectedGuids.has(guid)) continue;
+            selectedTotal += 1;
+            const row = st.recordByGuid.get(guid);
+            if (row?.hasParent) selectedDescendants += 1;
+        }
+        return {
+            visible: visibleSet.size,
+            selectedTotal,
+            selectedDescendants,
+            selectedRoots: Math.max(0, selectedTotal - selectedDescendants),
+        };
+    }
+
+    _bulkDeleteFlattenVisibleRows() {
+        const st = this._bulkDeleteState;
+        const filteredSet = new Set(st.filtered.map(r => r.guid));
+        const rows = [];
+        const seen = new Set();
+        const isAllMode = st.subPageFilter === 'all';
+        const walk = (guid, depth, forceInclude = false) => {
+            if (!guid || seen.has(guid)) return;
+            const row = st.recordByGuid.get(guid);
+            if (!row) return;
+            if (!forceInclude && !filteredSet.has(guid)) return;
+            seen.add(guid);
+            rows.push({ guid, depth, row });
+            const expandInAllMode = isAllMode;
+            if (!row.hasChildren || (!expandInAllMode && !st.expandedGuids.has(guid))) return;
+            const kids = st.childrenByParentGuid.get(guid) || [];
+            for (const childGuid of kids) walk(childGuid, depth + 1, !expandInAllMode);
+        };
+        if (isAllMode) {
+            const rootCandidates = st.filtered.filter((row) => !row.parentGuid || !filteredSet.has(row.parentGuid));
+            for (const row of rootCandidates) walk(row.guid, 0, false);
+            // Safety pass for any disconnected/cyclic leftovers.
+            for (const row of st.filtered) walk(row.guid, 0, false);
+        } else {
+            for (const row of st.filtered) walk(row.guid, 0, false);
+        }
+        return rows;
     }
 
     _previewAssign() {
@@ -6491,7 +6613,6 @@ ${this._shellFrameClose()}`;
     async _loadBulkDeleteRecords(options = {}) {
         const st = this._bulkDeleteState;
         const preserveSelectedGuids = options.preserveSelectedGuids instanceof Set ? options.preserveSelectedGuids : null;
-        const preserveDeleteChildrenGuids = options.preserveDeleteChildrenGuids instanceof Set ? options.preserveDeleteChildrenGuids : null;
         const source = this._bulkDeleteCollectionByGuid(st.sourceGuid);
         if (!source) {
             st.records = [];
@@ -6499,10 +6620,12 @@ ${this._shellFrameClose()}`;
             st.childrenByParentGuid = new Map();
             st.filtered = [];
             st.selectedGuids.clear();
+            st.expandedGuids.clear();
             return;
         }
         st.loading = true;
         st.selectedGuids.clear();
+        st.expandedGuids.clear();
         try {
             const recs = (await source.raw.getAllRecords?.()) || [];
             st.records = recs.map(r => {
@@ -6521,7 +6644,6 @@ ${this._shellFrameClose()}`;
                     parentGuid,
                     hasChildren: false,
                     descendantCount: 0,
-                    deleteChildren: false,
                 };
             }).sort((a, b) => a.name.localeCompare(b.name));
             const recordByGuid = new Map();
@@ -6548,9 +6670,14 @@ ${this._shellFrameClose()}`;
                 const desc = countDescendants(row.guid, new Set());
                 row.descendantCount = desc;
                 row.hasChildren = desc > 0;
-                row.deleteChildren = !!(row.hasChildren && preserveDeleteChildrenGuids?.has(row.guid));
             }
-            st.parentOptions = st.records.map(r => ({ guid: r.guid, name: r.name }));
+            st.parentOptions = st.records
+                .filter(r => r.hasChildren)
+                .map(r => ({ guid: r.guid, name: r.name }))
+                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+            if (st.parentGuid && !st.parentOptions.some(p => p.guid === st.parentGuid)) {
+                st.parentGuid = '';
+            }
             if (preserveSelectedGuids) {
                 for (const guid of preserveSelectedGuids) {
                     if (recordByGuid.has(guid)) st.selectedGuids.add(guid);
@@ -6577,7 +6704,7 @@ ${this._shellFrameClose()}`;
     _applyBulkDeleteFilter() {
         const st = this._bulkDeleteState;
         const q = (st.filterText || '').trim().toLowerCase();
-        st.filtered = st.records.filter(r => {
+        const baseMatch = (r) => {
             if (q && !r.name.toLowerCase().includes(q)) return false;
             if (st.onlySelected && !st.selectedGuids.has(r.guid)) return false;
             if (st.subPageFilter === 'children-only' && !r.hasParent) return false;
@@ -6587,7 +6714,24 @@ ${this._shellFrameClose()}`;
                 if (!pg || r.parentGuid !== pg) return false;
             }
             return true;
-        });
+        };
+        const directMatches = st.records.filter(baseMatch);
+        if (st.subPageFilter !== 'all') {
+            st.filtered = directMatches;
+            return;
+        }
+        const include = new Set(directMatches.map(r => r.guid));
+        // Path-preserving in "All notes": keep ancestor chain visible for each match.
+        for (const row of directMatches) {
+            let cur = row;
+            const seen = new Set();
+            while (cur?.parentGuid && !seen.has(cur.parentGuid)) {
+                seen.add(cur.parentGuid);
+                include.add(cur.parentGuid);
+                cur = st.recordByGuid.get(cur.parentGuid);
+            }
+        }
+        st.filtered = st.records.filter(r => include.has(r.guid));
     }
 
     async _resetBulkMoveForm() {
@@ -6610,6 +6754,7 @@ ${this._shellFrameClose()}`;
         st.parentGuid = '';
         st.onlySelected = !!this._settings.bulkOnlySelectedDefault;
         st.selectedGuids.clear();
+        st.expandedGuids.clear();
         st.recordByGuid = new Map();
         st.childrenByParentGuid = new Map();
         st.previewRows = [];

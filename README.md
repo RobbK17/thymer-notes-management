@@ -4,8 +4,17 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Version
 
-- **Current version:** `1.0.14`
+- **Current version:** `1.0.15`
 - **Full per-release notes:** [changelog.md](./changelog.md) (detailed archive). Current behavior is also described under **Feature Overview** below.
+
+### What’s new in 1.0.15
+
+- **Delete tree selection UX:** Bulk Delete now supports tree-based row selection with per-row **children** subtree checkboxes (tri-state) and a header-level **All children** toggle.
+- **Mode-specific hierarchy rendering:** In **All notes**, rows render as an always-expanded indented hierarchy with path-preserving filtering; in other sub-page modes, chevrons remain for manual expand/collapse.
+- **Select-visible semantics update:** Header **All parents** now toggles only visible parent/root rows.
+- **Bulk Delete scope counters:** Header pills now summarize `visible`, `selected parents`, `selected children`, and `total selected`.
+- **Bulk Delete terminology and filter polish:** Sub-page filter label **Only root notes** is now **Only parent notes**. **Parent note** dropdown now lists only notes that actually have children and is alphabetically sorted.
+- **Children-only row clarity:** In **Only notes with parent** mode, row titles now append `(parent: <title>)`.
 
 ### What’s new in 1.0.14
 
@@ -129,13 +138,14 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 ### Delete Notes
 
 - Source collection selector.
-- Sub-page relationship filter: **All**, **Only notes with parent**, **Only root notes**, **Match selected parent**.
-- Parent-note selector appears when **Match selected parent** is chosen.
+- Sub-page relationship filter: **All notes**, **Only notes with parent**, **Only parent notes**, **Match selected parent**.
+- Parent-note selector appears when **Match selected parent** is chosen; dropdown includes only true parent notes and is sorted A-Z.
 - Title filter and optional **show only selected** mode.
-- Header-level **Select visible** checkbox for the current filtered rows.
-- Per-row **Delete children** appears only for rows that truly have descendants.
-- Header-level **Delete children (visible)** checkbox targets visible eligible rows.
-- Children count pills show descendant totals (`records` and `selected`) for visible eligible rows.
+- Tree-aware list with per-row checkboxes and per-row **children** subtree checkbox (tri-state) for rows that have descendants.
+- In **All notes**, hierarchy is rendered fully expanded with indentation and path-preserving filter behavior.
+- In other sub-page modes, chevrons expand/collapse descendants on demand.
+- Header controls: **All parents** (toggles visible parent/root rows) and **All children** (toggles descendants for visible parent rows).
+- Scope pills show: `visible`, `selected parents`, `selected children`, and `total selected`.
 - Preview-first workflow, then **Move to Trash**.
 - Preview status shows **roots selected**, **descendants**, and **total records to trash**; preview log also includes a tree-style listing of root and child record titles selected.
 - Move to Trash opens an in-panel confirmation modal; large runs require typed confirmation (`TRASH`) inside that modal before apply.
