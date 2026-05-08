@@ -1,7 +1,7 @@
 /** @see thymerapp/thymer-plugin-sdk types.d.ts PROP_TYPE_HASHTAG, PLUGIN_LINE_ITEM_SEGMENT_TYPE_HASHTAG */
 const THYMER_TYPE_HASHTAG = 'hashtag';
 
-const NOTES_MANAGER_VERSION = '1.0.12';
+const NOTES_MANAGER_VERSION = '1.0.14';
 
 /** Max characters of body text indexed per record for Home quick search (performance). */
 const NM_HOME_SEARCH_BODY_MAX = 16000;
@@ -9,6 +9,8 @@ const NM_HOME_SEARCH_BODY_MAX = 16000;
 const NM_HOME_SEARCH_MAX_ROWS = 25;
 /** Notes-only quick search: max hits kept in memory for paging (exact total is still counted past this). */
 const NM_HOME_SEARCH_MAX_STORED_NOTE_HITS = 500;
+/** Bulk delete: ask for typed confirmation at/above this many records. */
+const NM_BULK_DELETE_TYPED_CONFIRM_THRESHOLD = 50;
 
 class NotesManagerPanel {
     constructor(plugin) {
@@ -24,6 +26,8 @@ class NotesManagerPanel {
         this._displayRowsCache = null;
         this._homeSearchTimer = null;
         this._helpDialogOpen = false;
+        this._bulkDeleteConfirmOpen = false;
+        this._bulkDeleteConfirmText = '';
         this._homeSearch = {
             query: '',
             results: [],
@@ -80,6 +84,8 @@ class NotesManagerPanel {
             collections: [],
             sourceGuid: '',
             records: [],
+            recordByGuid: new Map(),
+            childrenByParentGuid: new Map(),
             filtered: [],
             selectedGuids: new Set(),
             filterText: '',
@@ -402,7 +408,7 @@ class NotesManagerPanel {
     }
 
     _sharedTailHTML() {
-        return `${this._buildReviewLogSection()}${this._statusHTML()}${this._buildHelpDialogHTML()}`;
+        return `${this._buildReviewLogSection()}${this._statusHTML()}${this._buildHelpDialogHTML()}${this._buildBulkDeleteConfirmDialogHTML()}`;
     }
 
     _buildHelpDialogHTML() {
@@ -413,6 +419,24 @@ class NotesManagerPanel {
             '<p class="nm-muted" style="margin:0 0 10px;font-size:13px;line-height:1.55"><strong>Bulk</strong> — move many notes between collections.</p>' +
             '<p class="nm-muted" style="margin:0;font-size:13px;line-height:1.55"><strong>Tags</strong> — quick rename, advanced review (grid / remove / add / trace), analyzer, merge from plan JSON.</p>';
         return `<div class="nm-help-overlay"><div class="nm-help-dialog" role="dialog" aria-modal="true" aria-labelledby="nm-help-title"><button type="button" class="nm-help-close" data-action="nm-help-close" aria-label="Close">×</button><p id="nm-help-title" class="nm-title" style="font-size:16px;margin:0 0 4px">Help</p><p class="nm-text" style="margin:0 0 12px;font-size:13px">What each area in the navigation bar is for.</p>${body}</div></div>`;
+    }
+
+    _buildBulkDeleteConfirmDialogHTML() {
+        if (!this._bulkDeleteConfirmOpen || this._mode !== 'bulk-delete') return '';
+        const st = this._bulkDeleteState;
+        const total = Array.isArray(st.previewRows) ? st.previewRows.length : 0;
+        const roots = Array.isArray(st.records) ? st.records.filter(r => st.selectedGuids.has(r.guid)).length : 0;
+        const descendants = Math.max(0, total - roots);
+        const needsTyped = total >= NM_BULK_DELETE_TYPED_CONFIRM_THRESHOLD;
+        const typedOk = !needsTyped || String(this._bulkDeleteConfirmText || '').trim() === 'TRASH';
+        const rootLabel = roots === 1 ? 'root' : 'roots';
+        const descendantLabel = descendants === 1 ? 'descendant' : 'descendants';
+        const recordLabel = total === 1 ? 'record' : 'records';
+        const summary = `${roots} ${rootLabel} selected, ${descendants} ${descendantLabel}, ${total} total ${recordLabel} to trash.`;
+        const typedField = needsTyped
+            ? `<div class="nm-field" style="margin-top:10px"><label class="nm-label">Type TRASH to confirm</label><input class="nm-input nm-bd-confirm-text" type="text" value="${this._escape(this._bulkDeleteConfirmText || '')}" placeholder="TRASH" autocomplete="off"></div>`
+            : '';
+        return `<div class="nm-help-overlay nm-bd-confirm-overlay"><div class="nm-help-dialog" role="dialog" aria-modal="true" aria-labelledby="nm-bd-confirm-title"><button type="button" class="nm-help-close" data-action="bd-confirm-cancel" aria-label="Close">×</button><p id="nm-bd-confirm-title" class="nm-title" style="font-size:16px;margin:0 0 6px">Confirm Move to Trash</p><p class="nm-text" style="margin:0 0 8px;font-size:13px">${this._escape(summary)}</p><p class="nm-muted" style="margin:0 0 8px;font-size:12px">This moves the selected records to Trash and writes per-row results to the review log.</p>${typedField}<div class="nm-actions" style="margin-top:12px"><button class="nm-btn nm-btn--secondary" data-action="bd-confirm-cancel">Cancel</button><button class="nm-btn" data-action="bd-confirm-apply"${typedOk ? '' : ' disabled'}>Move to Trash</button></div></div></div>`;
     }
 
     _tagAdvancedState(st) {
@@ -911,8 +935,34 @@ ${pickerHtml}
         const sourceOpts = st.collections.map(c => `<option value="${this._escape(c.guid)}"${st.sourceGuid === c.guid ? ' selected' : ''}>${this._escape(c.name)}</option>`).join('');
         const parentOpts = st.parentOptions.map(p => `<option value="${this._escape(p.guid)}"${st.parentGuid === p.guid ? ' selected' : ''}>${this._escape(p.name)}</option>`).join('');
         const parentHidden = st.subPageFilter !== 'match-parent' ? ' hidden' : '';
-        const rows = st.filtered.map(rec => `<div class="nm-row"><input type="checkbox" data-action="bd-toggle" data-guid="${this._escape(rec.guid)}"${st.selectedGuids.has(rec.guid) ? ' checked' : ''}><span class="nm-row-name" title="${this._escape(rec.name)}">${this._escape(rec.name)}</span><span class="nm-row-meta">${this._escape(rec.guid)}</span></div>`).join('');
-        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Delete Notes</p><p class="nm-text">Preview first, then move selected notes to Trash.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bd-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Sub-page filter</label><select class="nm-select nm-bd-sub-filter"><option value="all"${st.subPageFilter === 'all' ? ' selected' : ''}>All notes</option><option value="children-only"${st.subPageFilter === 'children-only' ? ' selected' : ''}>Only notes with parent</option><option value="root-only"${st.subPageFilter === 'root-only' ? ' selected' : ''}>Only root notes</option><option value="match-parent"${st.subPageFilter === 'match-parent' ? ' selected' : ''}>Match selected parent</option></select></div><div class="nm-field"${parentHidden}><label class="nm-label">Parent note</label><select class="nm-select nm-bd-parent"><option value="">Select parent...</option>${parentOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bd-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bd-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline"><button class="nm-btn nm-btn--secondary" data-action="bd-select-all">Select all</button><button class="nm-btn nm-btn--secondary" data-action="bd-select-none">Select none</button><span class="nm-pill">${st.filtered.length} records</span><span class="nm-pill">${st.selectedGuids.size} selected</span></div><span class="nm-muted">${st.loading ? 'Loading records...' : ''}</span></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bd-preview">Preview</button><button class="nm-btn" data-action="run-bulk-delete"${st.running ? ' disabled' : ''}>Move to Trash</button><button class="nm-btn nm-btn--secondary" data-action="bd-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
+        const parentDisabled = st.subPageFilter === 'match-parent' ? '' : ' disabled';
+        const childrenEligible = st.filtered.filter(r => r.hasChildren);
+        const childrenChecked = childrenEligible.filter(r => r.deleteChildren).length;
+        const allChildrenChecked = childrenEligible.length > 0 && childrenChecked === childrenEligible.length;
+        const childrenIndeterminate = childrenEligible.length > 0 && childrenChecked > 0 && childrenChecked < childrenEligible.length;
+        const childrenAllDisabled = childrenEligible.length === 0 ? ' disabled' : '';
+        const childrenAllChecked = allChildrenChecked ? ' checked' : '';
+        const childrenAllInd = childrenIndeterminate ? '1' : '0';
+        const visibleSelected = st.filtered.filter(r => st.selectedGuids.has(r.guid)).length;
+        const allVisibleChecked = st.filtered.length > 0 && visibleSelected === st.filtered.length;
+        const visibleIndeterminate = st.filtered.length > 0 && visibleSelected > 0 && visibleSelected < st.filtered.length;
+        const visibleAllDisabled = st.filtered.length === 0 ? ' disabled' : '';
+        const visibleAllChecked = allVisibleChecked ? ' checked' : '';
+        const visibleAllInd = visibleIndeterminate ? '1' : '0';
+        const childRecordsTotal = childrenEligible.reduce((sum, r) => sum + (Number(r.descendantCount) || 0), 0);
+        const childRecordsSelected = childrenEligible.reduce(
+            (sum, r) => sum + (r.deleteChildren ? (Number(r.descendantCount) || 0) : 0),
+            0,
+        );
+        const rows = st.filtered
+            .map((rec) => {
+                const childrenCell = rec.hasChildren
+                    ? `<label class="nm-inline" style="gap:4px;white-space:nowrap;align-items:center;flex:0 0 220px;justify-content:flex-start;"><input type="checkbox" data-action="bd-toggle-children" data-guid="${this._escape(rec.guid)}"${rec.deleteChildren ? ' checked' : ''}><span class="nm-muted">Delete children (${rec.descendantCount})</span></label>`
+                    : '<span style="flex:0 0 220px;"></span>';
+                return `<div class="nm-row"><input type="checkbox" data-action="bd-toggle" data-guid="${this._escape(rec.guid)}"${st.selectedGuids.has(rec.guid) ? ' checked' : ''}><span class="nm-row-name" style="flex:0 1 58%;max-width:58%;" title="${this._escape(rec.name)}">${this._escape(rec.name)}</span>${childrenCell}<span class="nm-row-meta" style="flex:1 1 auto;text-align:right;">${this._escape(rec.guid)}</span></div>`;
+            })
+            .join('');
+        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Delete Notes</p><p class="nm-text">Preview first, then move selected notes to Trash.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bd-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Sub-page filter</label><select class="nm-select nm-bd-sub-filter"><option value="all"${st.subPageFilter === 'all' ? ' selected' : ''}>All notes</option><option value="children-only"${st.subPageFilter === 'children-only' ? ' selected' : ''}>Only notes with parent</option><option value="root-only"${st.subPageFilter === 'root-only' ? ' selected' : ''}>Only root notes</option><option value="match-parent"${st.subPageFilter === 'match-parent' ? ' selected' : ''}>Match selected parent</option></select></div><div class="nm-field"${parentHidden}><label class="nm-label">Parent note</label><select class="nm-select nm-bd-parent"${parentDisabled}><option value="">Select parent...</option>${parentOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bd-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bd-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline" style="width:100%;gap:8px;align-items:center;"><div class="nm-inline" style="flex:0 1 58%;max-width:58%;gap:8px;align-items:center;min-width:260px;"><label class="nm-inline" style="gap:4px;align-items:center;white-space:nowrap;"><input type="checkbox" class="nm-bd-select-all-visible" data-action="bd-toggle-visible-all" data-indeterminate="${visibleAllInd}"${visibleAllChecked}${visibleAllDisabled}><span class="nm-muted">Select visible</span></label><span class="nm-pill">${st.filtered.length} records</span><span class="nm-pill">${st.selectedGuids.size} selected</span></div><div class="nm-inline" style="flex:0 0 220px;gap:4px;align-items:center;justify-content:flex-start;"><label class="nm-inline" style="gap:4px;align-items:center;white-space:nowrap;"><input type="checkbox" class="nm-bd-children-all" data-action="bd-toggle-children-all" data-indeterminate="${childrenAllInd}"${childrenAllChecked}${childrenAllDisabled}><span class="nm-muted">Delete children (visible)</span></label></div><span class="nm-pill">${childRecordsTotal} records</span><span class="nm-pill">${childRecordsSelected} selected</span><span class="nm-muted" style="margin-left:auto;">${st.loading ? 'Loading records...' : ''}</span></div></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bd-preview">Preview</button><button class="nm-btn" data-action="run-bulk-delete"${st.running ? ' disabled' : ''}>Move to Trash</button><button class="nm-btn nm-btn--secondary" data-action="bd-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
     }
 
     _buildAssignParentHTML() {
@@ -2147,7 +2197,7 @@ ${this._shellFrameClose()}`;
                 { signal },
             );
         }
-        const helpOv = el.querySelector('.nm-help-overlay');
+        const helpOv = el.querySelector('.nm-help-overlay:not(.nm-bd-confirm-overlay)');
         if (helpOv) {
             helpOv.addEventListener(
                 'click',
@@ -2164,6 +2214,46 @@ ${this._shellFrameClose()}`;
                 if (this._panel) this._render(this._panel);
             };
             document.addEventListener('keydown', onHelpEsc, { signal });
+        }
+        const bdConfirmOv = el.querySelector('.nm-bd-confirm-overlay');
+        if (bdConfirmOv) {
+            bdConfirmOv.addEventListener(
+                'click',
+                e => {
+                    if (e.target !== bdConfirmOv) return;
+                    this._bulkDeleteConfirmOpen = false;
+                    this._bulkDeleteConfirmText = '';
+                    if (this._panel) this._render(this._panel);
+                },
+                { signal },
+            );
+            const onConfirmEsc = e => {
+                if (e.key !== 'Escape' || !this._bulkDeleteConfirmOpen) return;
+                this._bulkDeleteConfirmOpen = false;
+                this._bulkDeleteConfirmText = '';
+                if (this._panel) this._render(this._panel);
+            };
+            document.addEventListener('keydown', onConfirmEsc, { signal });
+        }
+        const bdConfirmInput = el.querySelector('.nm-bd-confirm-text');
+        if (bdConfirmInput instanceof HTMLInputElement) {
+            bdConfirmInput.addEventListener('input', () => {
+                this._bulkDeleteConfirmText = bdConfirmInput.value;
+                if (this._panel) this._render(this._panel);
+            }, { signal });
+            requestAnimationFrame(() => bdConfirmInput.focus());
+            bdConfirmInput.addEventListener('keydown', e => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void this._applyBulkDeleteConfirmed();
+                    if (this._panel) this._render(this._panel);
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    this._bulkDeleteConfirmOpen = false;
+                    this._bulkDeleteConfirmText = '';
+                    if (this._panel) this._render(this._panel);
+                }
+            }, { signal });
         }
         el.addEventListener('click', async e => {
             const target = e.target.closest('[data-action]');
@@ -2185,6 +2275,8 @@ ${this._shellFrameClose()}`;
                 case 'set-mode': {
                     const next = target.dataset.mode || 'home';
                     this._helpDialogOpen = false;
+                    this._bulkDeleteConfirmOpen = false;
+                    this._bulkDeleteConfirmText = '';
                     if (next !== 'home') this._clearHomeSearchTimer();
                     if (this._mode === 'tag-merge' && next !== 'tag-merge') this._resetTagMergeState();
                     if (next === 'home') {
@@ -2332,9 +2424,38 @@ ${this._shellFrameClose()}`;
                 }
                 case 'bm-preview': await this._previewBulkMove(); if (this._panel) this._render(this._panel); break;
                 case 'run-bulk-move': await this._runBulkMove(); if (this._panel) this._render(this._panel); break;
-                case 'bd-select-all': for (const rec of this._bulkDeleteState.filtered) this._bulkDeleteState.selectedGuids.add(rec.guid); if (this._panel) this._render(this._panel); break;
-                case 'bd-select-none': this._bulkDeleteState.selectedGuids.clear(); this._applyBulkDeleteFilter(); if (this._panel) this._render(this._panel); break;
+                case 'bd-toggle-visible-all': {
+                    const checked = !!target.checked;
+                    if (checked) {
+                        for (const rec of this._bulkDeleteState.filtered) this._bulkDeleteState.selectedGuids.add(rec.guid);
+                    } else {
+                        for (const rec of this._bulkDeleteState.filtered) this._bulkDeleteState.selectedGuids.delete(rec.guid);
+                    }
+                    this._applyBulkDeleteFilter();
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
                 case 'bd-toggle': { const g = target.dataset.guid; if (g) { if (target.checked) this._bulkDeleteState.selectedGuids.add(g); else this._bulkDeleteState.selectedGuids.delete(g); this._applyBulkDeleteFilter(); if (this._panel) this._render(this._panel); } break; }
+                case 'bd-toggle-children': {
+                    const g = target.dataset.guid;
+                    const row = g ? this._bulkDeleteState.records.find(r => r.guid === g) : null;
+                    if (row && row.hasChildren) {
+                        row.deleteChildren = !!target.checked;
+                        if (this._panel) this._render(this._panel);
+                    }
+                    break;
+                }
+                case 'bd-toggle-children-all': {
+                    const checked = !!target.checked;
+                    const st = this._bulkDeleteState;
+                    const rows = st.filtered.filter(r => r.hasChildren);
+                    for (const row of rows) {
+                        if (!row.hasChildren) continue;
+                        row.deleteChildren = checked;
+                    }
+                    if (this._panel) this._render(this._panel);
+                    break;
+                }
                 case 'bd-refresh': {
                     await this._loadBulkDeleteRecords();
                     const stBd = this._bulkDeleteState;
@@ -2347,6 +2468,15 @@ ${this._shellFrameClose()}`;
                 }
                 case 'bd-preview': await this._previewBulkDelete(); if (this._panel) this._render(this._panel); break;
                 case 'run-bulk-delete': await this._runBulkDelete(); if (this._panel) this._render(this._panel); break;
+                case 'bd-confirm-cancel':
+                    this._bulkDeleteConfirmOpen = false;
+                    this._bulkDeleteConfirmText = '';
+                    if (this._panel) this._render(this._panel);
+                    break;
+                case 'bd-confirm-apply':
+                    await this._applyBulkDeleteConfirmed();
+                    if (this._panel) this._render(this._panel);
+                    break;
                 case 'ap-toggle': { const row = this._assignState.rows.find(r => r.guid === target.dataset.guid); if (row) { row.checked = !!target.checked; if (this._panel) this._render(this._panel); } break; }
                 case 'ap-parent-pick': { const picked = this._assignState.recordMap.get(target.dataset.guid); if (picked) { this._assignState.parentGuid = picked.guid; this._assignState.parentQuery = picked.fullTitle; this._assignState.parentSearchOpen = false; this._assignState.parentSuggestActiveIndex = -1; this._rebuildAssignRows(); if (this._panel) this._render(this._panel); } break; }
                 case 'ap-parent-clear': this._assignState.parentGuid = ''; this._assignState.parentQuery = ''; this._assignState.parentSearchOpen = false; this._assignState.parentSuggestActiveIndex = -1; this._rebuildAssignRows(); if (this._panel) this._render(this._panel); break;
@@ -2954,6 +3084,10 @@ ${this._shellFrameClose()}`;
         if (bdOnly) bdOnly.addEventListener('change', () => { this._bulkDeleteState.onlySelected = !!bdOnly.checked; this._settings.bulkOnlySelectedDefault = !!bdOnly.checked; this._saveSettings(); this._applyBulkDeleteFilter(); if (this._panel) this._render(this._panel); }, { signal });
         const bdFilter = el.querySelector('.nm-bd-filter');
         if (bdFilter) bdFilter.addEventListener('input', () => { this._bulkDeleteState.filterText = bdFilter.value; this._applyBulkDeleteFilter(); this._scheduleDebouncedRender(); }, { signal });
+        const bdSelectAllVisible = el.querySelector('.nm-bd-select-all-visible');
+        if (bdSelectAllVisible instanceof HTMLInputElement) bdSelectAllVisible.indeterminate = bdSelectAllVisible.dataset.indeterminate === '1';
+        const bdChildrenAll = el.querySelector('.nm-bd-children-all');
+        if (bdChildrenAll instanceof HTMLInputElement) bdChildrenAll.indeterminate = bdChildrenAll.dataset.indeterminate === '1';
 
         const apParent = el.querySelector('.nm-ap-parent-search');
         if (apParent) {
@@ -3489,11 +3623,57 @@ ${this._shellFrameClose()}`;
         const st = this._bulkDeleteState;
         const source = this._bulkDeleteCollectionByGuid(st.sourceGuid);
         if (!source) { this._setStatus('Select a source collection first.'); return; }
-        const selected = st.records.filter(r => st.selectedGuids.has(r.guid));
-        if (!selected.length) { this._setStatus('Select at least one record to preview delete.'); return; }
-        st.previewRows = selected.map(r => ({ operation: 'bulk-delete', recordGuid: r.guid, recordName: r.name, action: 'trash', before: source.name, after: 'Trash' }));
-        const previewSummary = `Preview ready: ${st.previewRows.length} trash move(s).`;
-        this._logRow('bulk-delete', 'preview', { recordGuid: '', recordName: '' }, previewSummary);
+        const selectedRoots = st.records.filter(r => st.selectedGuids.has(r.guid));
+        if (!selectedRoots.length) { this._setStatus('Select at least one record to preview delete.'); return; }
+        const planned = [];
+        const plannedGuids = new Set();
+        for (const root of selectedRoots) {
+            const ordered = root.deleteChildren
+                ? this._bulkDeleteCollectOrderedGuids(root.guid, st.childrenByParentGuid)
+                : [root.guid];
+            for (const guid of ordered) {
+                if (plannedGuids.has(guid)) continue;
+                const row = st.recordByGuid.get(guid) || st.records.find(r => r.guid === guid);
+                if (!row) continue;
+                planned.push({
+                    operation: 'bulk-delete',
+                    recordGuid: row.guid,
+                    recordName: row.name,
+                    action: 'trash',
+                    before: source.name,
+                    after: 'Trash',
+                    rootGuid: root.guid,
+                    rootName: root.name,
+                });
+                plannedGuids.add(guid);
+            }
+        }
+        st.previewRows = planned;
+        const descendantCount = Math.max(0, st.previewRows.length - selectedRoots.length);
+        const rootLabel = selectedRoots.length === 1 ? 'root' : 'roots';
+        const descendantLabel = descendantCount === 1 ? 'descendant' : 'descendants';
+        const recordLabel = st.previewRows.length === 1 ? 'record' : 'records';
+        const previewSummary = `Preview ready: ${selectedRoots.length} ${rootLabel} selected, ${descendantCount} ${descendantLabel}, ${st.previewRows.length} total ${recordLabel} to trash.`;
+        const rootLines = [];
+        for (const root of selectedRoots) {
+            const descendants = Number(root.descendantCount) || 0;
+            if (!root.hasChildren || !root.deleteChildren) {
+                rootLines.push(`- ${root.name}`);
+                continue;
+            }
+            rootLines.push(`- ${root.name} (self + ${descendants} descendant(s))`);
+            const ordered = this._bulkDeleteCollectOrderedGuids(root.guid, st.childrenByParentGuid);
+            const childGuids = ordered.filter(guid => guid !== root.guid);
+            for (const childGuid of childGuids) {
+                const child = st.recordByGuid.get(childGuid);
+                if (!child) continue;
+                rootLines.push(`  - ${child.name}`);
+            }
+        }
+        const previewDetail = rootLines.length
+            ? `${previewSummary}\nPlanned roots and selected children:\n${rootLines.join('\n')}`
+            : previewSummary;
+        this._logRow('bulk-delete', 'preview', { recordGuid: '', recordName: '' }, previewDetail);
         this._setStatus(previewSummary, { title: 'Bulk delete', logged: true });
     }
 
@@ -3501,29 +3681,70 @@ ${this._shellFrameClose()}`;
         const st = this._bulkDeleteState;
         if (!st.previewRows.length) await this._previewBulkDelete();
         if (!st.previewRows.length) return;
-        const confirmed = confirm(`Move ${st.previewRows.length} selected note(s) to Trash?`);
-        if (!confirmed) return;
+        this._bulkDeleteConfirmOpen = true;
+        this._bulkDeleteConfirmText = '';
+    }
+
+    async _applyBulkDeleteConfirmed() {
+        const st = this._bulkDeleteState;
+        if (!st.previewRows.length) {
+            this._bulkDeleteConfirmOpen = false;
+            this._bulkDeleteConfirmText = '';
+            return;
+        }
+        if (st.previewRows.length >= NM_BULK_DELETE_TYPED_CONFIRM_THRESHOLD && String(this._bulkDeleteConfirmText || '').trim() !== 'TRASH') {
+            this._setStatus('Bulk delete cancelled: confirmation text did not match.');
+            return;
+        }
+        this._bulkDeleteConfirmOpen = false;
+        this._bulkDeleteConfirmText = '';
         st.running = true;
         let ok = 0;
         let fail = 0;
+        const failedGuids = new Set();
+        const failedDeleteChildrenGuids = new Set();
+        const trashedGuids = new Set();
         for (const row of st.previewRows) {
-            const rec = st.records.find(r => r.guid === row.recordGuid);
+            if (trashedGuids.has(row.recordGuid)) continue;
+            const rec = st.recordByGuid.get(row.recordGuid) || st.records.find(r => r.guid === row.recordGuid);
             if (!rec) continue;
             try {
                 await Promise.resolve(rec.raw.trash?.());
                 ok++;
+                trashedGuids.add(row.recordGuid);
                 this._logRow('bulk-delete', 'applied', row, 'Moved to Trash');
             } catch (e) {
                 fail++;
+                failedGuids.add(row.rootGuid || row.recordGuid);
+                const rootRow = st.recordByGuid.get(row.rootGuid || row.recordGuid);
+                if (rootRow?.deleteChildren) failedDeleteChildrenGuids.add(rootRow.guid);
                 this._logRow('bulk-delete', 'failed', row, String(e?.message || e));
             }
+            await Promise.resolve();
         }
-        await this._loadBulkDeleteRecords();
+        await this._loadBulkDeleteRecords({
+            preserveSelectedGuids: failedGuids,
+            preserveDeleteChildrenGuids: failedDeleteChildrenGuids,
+        });
         const bulkApplyMsg = `Bulk delete apply complete: ${ok} ok, ${fail} failed.`;
         this._logRow('bulk-delete', 'summary', { recordGuid: '', recordName: '' }, bulkApplyMsg);
         this._setStatus(bulkApplyMsg, { title: 'Bulk delete', logged: true });
         st.previewRows = [];
         st.running = false;
+    }
+
+    _bulkDeleteCollectOrderedGuids(rootGuid, childrenByParentGuid) {
+        const visited = new Set();
+        const ordered = [];
+        const walk = (guid) => {
+            if (!guid || visited.has(guid)) return;
+            visited.add(guid);
+            const kids = childrenByParentGuid.get(guid) || [];
+            for (const childGuid of kids) walk(childGuid);
+            ordered.push(guid);
+        };
+        walk(rootGuid);
+        return ordered;
     }
 
     _previewAssign() {
@@ -6267,10 +6488,19 @@ ${this._shellFrameClose()}`;
         }
     }
 
-    async _loadBulkDeleteRecords() {
+    async _loadBulkDeleteRecords(options = {}) {
         const st = this._bulkDeleteState;
+        const preserveSelectedGuids = options.preserveSelectedGuids instanceof Set ? options.preserveSelectedGuids : null;
+        const preserveDeleteChildrenGuids = options.preserveDeleteChildrenGuids instanceof Set ? options.preserveDeleteChildrenGuids : null;
         const source = this._bulkDeleteCollectionByGuid(st.sourceGuid);
-        if (!source) { st.records = []; st.filtered = []; st.selectedGuids.clear(); return; }
+        if (!source) {
+            st.records = [];
+            st.recordByGuid = new Map();
+            st.childrenByParentGuid = new Map();
+            st.filtered = [];
+            st.selectedGuids.clear();
+            return;
+        }
         st.loading = true;
         st.selectedGuids.clear();
         try {
@@ -6289,11 +6519,47 @@ ${this._shellFrameClose()}`;
                     raw: r,
                     hasParent: !!parentGuid,
                     parentGuid,
+                    hasChildren: false,
+                    descendantCount: 0,
+                    deleteChildren: false,
                 };
             }).sort((a, b) => a.name.localeCompare(b.name));
+            const recordByGuid = new Map();
+            for (const row of st.records) recordByGuid.set(row.guid, row);
+            st.recordByGuid = recordByGuid;
+            const childrenByParentGuid = new Map();
+            for (const row of st.records) {
+                if (!row.parentGuid || !recordByGuid.has(row.parentGuid)) continue;
+                if (!childrenByParentGuid.has(row.parentGuid)) childrenByParentGuid.set(row.parentGuid, []);
+                childrenByParentGuid.get(row.parentGuid).push(row.guid);
+            }
+            st.childrenByParentGuid = childrenByParentGuid;
+            const countDescendants = (guid, seen = new Set()) => {
+                if (seen.has(guid)) return 0;
+                seen.add(guid);
+                const kids = childrenByParentGuid.get(guid) || [];
+                let count = 0;
+                for (const childGuid of kids) {
+                    count += 1 + countDescendants(childGuid, seen);
+                }
+                return count;
+            };
+            for (const row of st.records) {
+                const desc = countDescendants(row.guid, new Set());
+                row.descendantCount = desc;
+                row.hasChildren = desc > 0;
+                row.deleteChildren = !!(row.hasChildren && preserveDeleteChildrenGuids?.has(row.guid));
+            }
             st.parentOptions = st.records.map(r => ({ guid: r.guid, name: r.name }));
+            if (preserveSelectedGuids) {
+                for (const guid of preserveSelectedGuids) {
+                    if (recordByGuid.has(guid)) st.selectedGuids.add(guid);
+                }
+            }
         } catch (e) {
             st.records = [];
+            st.recordByGuid = new Map();
+            st.childrenByParentGuid = new Map();
             st.parentOptions = [];
             this._setStatus(`Error loading records: ${String(e?.message || e)}`);
         } finally {
@@ -6344,6 +6610,8 @@ ${this._shellFrameClose()}`;
         st.parentGuid = '';
         st.onlySelected = !!this._settings.bulkOnlySelectedDefault;
         st.selectedGuids.clear();
+        st.recordByGuid = new Map();
+        st.childrenByParentGuid = new Map();
         st.previewRows = [];
         if (st.collections.length >= 1) {
             st.sourceGuid = st.collections[0].guid;

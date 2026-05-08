@@ -4,7 +4,37 @@ This file holds the **full** per-release notes that previously lived under **Ver
 
 ---
 
-- **Current version:** `1.0.12`
+- **Current version:** `1.0.14`
+
+### What’s new in 1.0.14
+
+**Delete notes confirmation + preview clarity**
+
+- Bulk delete preview now writes a detailed tree listing to the review log: selected root record titles plus selected child titles beneath each root when subtree delete is enabled.
+
+- Preview status/summary now reports `roots selected`, `descendants`, and `total records to trash` with plural-aware wording; this same one-line summary is also the first line of the preview log entry.
+
+- Browser `confirm()` / `prompt()` dialogs were replaced with an in-panel **Confirm Move to Trash** modal that includes Cancel/Apply actions and keyboard/backdrop close behavior.
+
+- Large delete typed confirmation (`TRASH`) now occurs inside that modal before apply.
+
+- The temporary **selected only** scope option for the Delete-children header toggle was removed; header toggle behavior is now consistently based on visible eligible rows.
+
+### What’s new in 1.0.13
+
+**Delete notes (bulk) follow-up**
+
+- Header controls now emphasize visibility-based selection: **Select visible** for row selection, and **Delete children (visible)** for subtree toggles.
+
+- Row-level **Delete children** checkboxes render only when a row truly has descendants.
+
+- Children summary pills now report descendant totals in-scope (`records` and `selected`) instead of simple parent-row counts.
+
+- Bulk delete preview now logs a compact root tree summary (`self only` / `self + N descendants`) so subtree impact is clearer before apply.
+
+- Large delete runs now require typed confirmation (`TRASH`) after confirm when the preview set is big.
+
+- After apply, failed root selections (and their delete-children intent) are preserved across record reload for retry.
 
 ### What’s new in 1.0.12
 

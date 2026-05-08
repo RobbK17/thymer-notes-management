@@ -4,8 +4,22 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Version
 
-- **Current version:** `1.0.12`
+- **Current version:** `1.0.14`
 - **Full per-release notes:** [changelog.md](./changelog.md) (detailed archive). Current behavior is also described under **Feature Overview** below.
+
+### What’s new in 1.0.14
+
+- **Delete preview log details:** Bulk Delete preview now logs a tree-style list of selected roots plus selected child titles for each root when **Delete children** is enabled.
+- **Delete preview one-line summary:** Preview status now reads as counts for roots selected, descendants, and total records to trash (with plural-aware wording), and this summary is also the first line of the preview log entry.
+- **Delete confirmation UX:** Replaced browser `confirm/prompt` with an in-panel **Confirm Move to Trash** modal (Cancel / Move to Trash, Esc/backdrop close, Enter submit in typed field).
+- **Large-run safety kept in-panel:** For large delete runs, typed `TRASH` confirmation now happens inside the modal before apply.
+- **Header toggle scope simplification:** Removed the temporary **selected only** scope option from the Delete-children header control; **Delete children (visible)** now consistently targets visible eligible rows.
+
+### What’s new in 1.0.13
+
+- **Delete notes header controls:** Replaced old select-all/select-none flow with **Select visible** and kept the children toggle on the same header row; child count pills reflect descendant totals for visible eligible rows.
+- **Delete preview detail:** Bulk delete preview status/log now includes a compact root-level tree summary (`self only` vs `self + N descendants`) so subtree impact is visible before apply.
+- **Safer large deletes + failure retention:** Apply now asks for typed confirmation (`TRASH`) on large runs, and failed root selections (plus their delete-children flags) are preserved after refresh for retry.
 
 ### What’s new in 1.0.12
 
@@ -118,8 +132,14 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - Sub-page relationship filter: **All**, **Only notes with parent**, **Only root notes**, **Match selected parent**.
 - Parent-note selector appears when **Match selected parent** is chosen.
 - Title filter and optional **show only selected** mode.
-- Select all/select none for visible rows.
+- Header-level **Select visible** checkbox for the current filtered rows.
+- Per-row **Delete children** appears only for rows that truly have descendants.
+- Header-level **Delete children (visible)** checkbox targets visible eligible rows.
+- Children count pills show descendant totals (`records` and `selected`) for visible eligible rows.
 - Preview-first workflow, then **Move to Trash**.
+- Preview status shows **roots selected**, **descendants**, and **total records to trash**; preview log also includes a tree-style listing of root and child record titles selected.
+- Move to Trash opens an in-panel confirmation modal; large runs require typed confirmation (`TRASH`) inside that modal before apply.
+- Failed root selections are retained after apply for quick retry.
 - Row-level result logging for moved-to-trash / failed records.
 - Refresh action updates **`nm-status`** and appends a **review log** line.
 
