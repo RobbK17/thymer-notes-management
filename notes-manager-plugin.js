@@ -2260,7 +2260,10 @@ ${this._shellFrameClose()}`;
         if (bdConfirmInput instanceof HTMLInputElement) {
             bdConfirmInput.addEventListener('input', () => {
                 this._bulkDeleteConfirmText = bdConfirmInput.value;
-                if (this._panel) this._render(this._panel);
+                const applyBtn = bdConfirmInput.closest('.nm-help-dialog')?.querySelector('[data-action="bd-confirm-apply"]');
+                if (applyBtn instanceof HTMLButtonElement) {
+                    applyBtn.disabled = String(this._bulkDeleteConfirmText || '').trim() !== 'TRASH';
+                }
             }, { signal });
             requestAnimationFrame(() => bdConfirmInput.focus());
             bdConfirmInput.addEventListener('keydown', e => {
