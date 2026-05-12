@@ -10,7 +10,7 @@ This file holds the **full** per-release notes that previously lived under **Ver
 
 **Bulk Delete — property filter: empty values**
 
-- **Empty only — no value / blank:** When a **Property** is selected, you can match notes where that column has **no usable value** for filtering (property missing on the record, or every examined fragment is blank after trim). The **Property contains** field is disabled while this is checked so the intent is unambiguous.
+- **Empty only — no value:** When a **Property** is selected, you can match notes where that column has **no usable value** for filtering (property missing on the record, or every examined fragment is blank after trim). The **Property contains** field is disabled while this is checked so the intent is unambiguous.
 
 - **Use case:** Finding notes with an empty **Calendar** (or similar) — choose the property, enable **Empty only**, then preview/select as usual. This is distinct from leaving **Property contains** blank, which previously applied no property constraint at all.
 
