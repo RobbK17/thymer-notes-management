@@ -4,7 +4,29 @@ This file holds the **full** per-release notes that previously lived under **Ver
 
 ---
 
-- **Current version:** `1.0.15`
+- **Current version:** `1.0.17`
+
+### What’s new in 1.0.17
+
+**Bulk Delete — property filter: empty values**
+
+- **Empty only — no value / blank:** When a **Property** is selected, you can match notes where that column has **no usable value** for filtering (property missing on the record, or every examined fragment is blank after trim). The **Property contains** field is disabled while this is checked so the intent is unambiguous.
+
+- **Use case:** Finding notes with an empty **Calendar** (or similar) — choose the property, enable **Empty only**, then preview/select as usual. This is distinct from leaving **Property contains** blank, which previously applied no property constraint at all.
+
+### What’s new in 1.0.16
+
+**Bulk Delete — filter by custom property**
+
+- **Property** dropdown lists every property name returned by `getAllProperties()` across notes in the **current source collection** (sorted A–Z). **`(none)`** disables property-based filtering.
+
+- **Property contains** applies a **case-insensitive substring** match over the same value surfaces used elsewhere for property reads: **`texts()`** / **`values()`** string fragments, plus **choice** selections via **`selectedChoiceLabels()`** and **`selectedChoices()`** (stringified). Works together with the existing title filter, sub-page filter, and **Show only selected**.
+
+- Changing **Source collection** rebuilds the property list; if the previously chosen property name disappears, the property filter resets.
+
+**Bulk Delete — Confirm Move to Trash modal**
+
+- Typing **`TRASH`** in the confirmation field no longer **re-renders the whole panel on every keystroke** (which recreated the input and reset the caret). The **Move to Trash** button’s **`disabled`** state is updated in place instead.
 
 ### What’s new in 1.0.15
 

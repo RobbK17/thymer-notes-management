@@ -1,7 +1,7 @@
 /** @see thymerapp/thymer-plugin-sdk types.d.ts PROP_TYPE_HASHTAG, PLUGIN_LINE_ITEM_SEGMENT_TYPE_HASHTAG */
 const THYMER_TYPE_HASHTAG = 'hashtag';
 
-const NOTES_MANAGER_VERSION = '1.0.15';
+const NOTES_MANAGER_VERSION = '1.0.17';
 
 /** Max characters of body text indexed per record for Home quick search (performance). */
 const NM_HOME_SEARCH_BODY_MAX = 16000;
@@ -90,6 +90,10 @@ class NotesManagerPanel {
             selectedGuids: new Set(),
             expandedGuids: new Set(),
             filterText: '',
+            propertyFilterName: '',
+            propertyFilterText: '',
+            propertyFilterEmptyOnly: false,
+            propertyFilterOptions: [],
             subPageFilter: 'all',
             parentGuid: '',
             parentOptions: [],
@@ -964,6 +968,10 @@ ${pickerHtml}
         const subtreeAllCheckedAttr = subtreeAllChecked ? ' checked' : '';
         const subtreeAllInd = subtreeIndeterminate ? '1' : '0';
         const isAllMode = st.subPageFilter === 'all';
+        const propOpts = (Array.isArray(st.propertyFilterOptions) ? st.propertyFilterOptions : []).map(n => `<option value="${this._escape(n)}"${st.propertyFilterName === n ? ' selected' : ''}>${this._escape(n)}</option>`).join('');
+        const propFilterDisabled = !String(st.propertyFilterName || '').trim() ? ' disabled' : '';
+        const nonePropSelected = !String(st.propertyFilterName || '').trim();
+        const propTextDisabled = propFilterDisabled || (st.propertyFilterEmptyOnly ? ' disabled' : '');
         const rows = visibleRows.map((entry) => {
             const rec = entry.row;
             const indentPx = entry.depth * 16;
@@ -983,7 +991,7 @@ ${pickerHtml}
                 : '<span style="display:inline-block;flex:0 0 118px;"></span>';
             return `<div class="nm-row"><span style="display:inline-flex;flex:0 0 34px;align-items:center;justify-content:flex-start;padding-left:${checkboxIndentPx}px;"><input type="checkbox" data-action="bd-toggle" data-guid="${this._escape(rec.guid)}"${st.selectedGuids.has(rec.guid) ? ' checked' : ''}></span><div class="nm-inline" style="flex:0 1 58%;max-width:58%;gap:6px;align-items:center;padding-left:${indentPx}px;">${chevron}<span class="nm-row-name" title="${this._escape(titleText)}">${this._escape(titleText)}</span></div>${subtreeControl}<span class="nm-row-meta" style="flex:1 1 auto;text-align:right;">${this._escape(rec.guid)}</span></div>`;
         }).join('');
-        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Delete Notes</p><p class="nm-text">Preview first, then move selected notes to Trash.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bd-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Sub-page filter</label><select class="nm-select nm-bd-sub-filter"><option value="all"${st.subPageFilter === 'all' ? ' selected' : ''}>All notes</option><option value="children-only"${st.subPageFilter === 'children-only' ? ' selected' : ''}>Only notes with parent</option><option value="root-only"${st.subPageFilter === 'root-only' ? ' selected' : ''}>Only parent notes</option><option value="match-parent"${st.subPageFilter === 'match-parent' ? ' selected' : ''}>Match selected parent</option></select></div><div class="nm-field"${parentHidden}><label class="nm-label">Parent note</label><select class="nm-select nm-bd-parent"${parentDisabled}><option value="">Select parent...</option>${parentOpts}</select></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bd-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bd-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline" style="width:100%;gap:8px;align-items:center;"><label class="nm-inline" style="gap:4px;align-items:center;white-space:nowrap;"><input type="checkbox" class="nm-bd-select-all-visible" data-action="bd-toggle-visible-all" data-indeterminate="${visibleAllInd}"${visibleAllChecked}${visibleAllDisabled}><span class="nm-muted">All parents</span></label><label class="nm-inline" style="gap:4px;align-items:center;white-space:nowrap;"><input type="checkbox" class="nm-bd-subtree-all" data-action="bd-toggle-subtree-visible" data-indeterminate="${subtreeAllInd}"${subtreeAllCheckedAttr}${subtreeAllDisabled}><span class="nm-muted">All children</span></label><span class="nm-pill">${stats.visible} visible</span><span class="nm-pill">${stats.selectedRoots} selected parents</span><span class="nm-pill">${stats.selectedDescendants} selected children</span><span class="nm-pill">${stats.selectedTotal} total selected</span><span class="nm-muted" style="margin-left:auto;">${st.loading ? 'Loading records...' : ''}</span></div></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bd-preview">Preview</button><button class="nm-btn" data-action="run-bulk-delete"${st.running ? ' disabled' : ''}>Move to Trash</button><button class="nm-btn nm-btn--secondary" data-action="bd-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
+        return `${this._shellFrameOpen()}<div class="nm-card"><p class="nm-title">Delete Notes</p><p class="nm-text">Preview first, then move selected notes to Trash.</p><p class="nm-bulk-summary">${this._escape(summary)}</p><div class="nm-field-grid"><div class="nm-field"><label class="nm-label">Source collection</label><select class="nm-select nm-bd-source">${sourceOpts}</select></div><div class="nm-field"><label class="nm-label">Sub-page filter</label><select class="nm-select nm-bd-sub-filter"><option value="all"${st.subPageFilter === 'all' ? ' selected' : ''}>All notes</option><option value="children-only"${st.subPageFilter === 'children-only' ? ' selected' : ''}>Only notes with parent</option><option value="root-only"${st.subPageFilter === 'root-only' ? ' selected' : ''}>Only parent notes</option><option value="match-parent"${st.subPageFilter === 'match-parent' ? ' selected' : ''}>Match selected parent</option></select></div><div class="nm-field"${parentHidden}><label class="nm-label">Parent note</label><select class="nm-select nm-bd-parent"${parentDisabled}><option value="">Select parent...</option>${parentOpts}</select></div><div class="nm-field"><label class="nm-label">Property</label><select class="nm-select nm-bd-prop-name"><option value=""${nonePropSelected ? ' selected' : ''}>(none)</option>${propOpts}</select></div><div class="nm-field"><label class="nm-label">Property contains</label><input class="nm-input nm-bd-prop-filter" type="text" value="${this._escape(st.propertyFilterText)}" placeholder="Substring…"${propTextDisabled}><label class="nm-inline" style="margin-top:6px"><input type="checkbox" class="nm-bd-prop-empty-only"${st.propertyFilterEmptyOnly ? ' checked' : ''}${propFilterDisabled}> <span class="nm-muted">Empty only — no value / blank</span></label></div><div class="nm-field"><label class="nm-label">Filter (title contains)</label><input class="nm-input nm-bd-filter" type="text" value="${this._escape(st.filterText)}"></div><div class="nm-field"><label class="nm-label">Display</label><label class="nm-inline"><input type="checkbox" class="nm-bd-only-selected"${st.onlySelected ? ' checked' : ''}> <span class="nm-muted">Show only selected</span></label></div></div><div class="nm-list"><div class="nm-list-head"><div class="nm-inline" style="width:100%;gap:8px;align-items:center;"><label class="nm-inline" style="gap:4px;align-items:center;white-space:nowrap;"><input type="checkbox" class="nm-bd-select-all-visible" data-action="bd-toggle-visible-all" data-indeterminate="${visibleAllInd}"${visibleAllChecked}${visibleAllDisabled}><span class="nm-muted">All parents</span></label><label class="nm-inline" style="gap:4px;align-items:center;white-space:nowrap;"><input type="checkbox" class="nm-bd-subtree-all" data-action="bd-toggle-subtree-visible" data-indeterminate="${subtreeAllInd}"${subtreeAllCheckedAttr}${subtreeAllDisabled}><span class="nm-muted">All children</span></label><span class="nm-pill">${stats.visible} visible</span><span class="nm-pill">${stats.selectedRoots} selected parents</span><span class="nm-pill">${stats.selectedDescendants} selected children</span><span class="nm-pill">${stats.selectedTotal} total selected</span><span class="nm-muted" style="margin-left:auto;">${st.loading ? 'Loading records...' : ''}</span></div></div><div class="nm-list-rows">${rows || '<div class="nm-row"><span class="nm-row-name">No records found.</span></div>'}</div></div><div class="nm-actions"><button class="nm-btn nm-btn--secondary" data-action="bd-preview">Preview</button><button class="nm-btn" data-action="run-bulk-delete"${st.running ? ' disabled' : ''}>Move to Trash</button><button class="nm-btn nm-btn--secondary" data-action="bd-refresh">Refresh</button><button class="nm-btn nm-btn--secondary" data-action="set-mode" data-mode="home">Back</button></div>${st.previewRows.length ? `<div class="nm-status">Preview rows: ${st.previewRows.length}</div>` : ''}</div>${this._shellFrameClose()}`;
     }
 
     _buildAssignParentHTML() {
@@ -3129,6 +3137,35 @@ ${this._shellFrameClose()}`;
         if (bdOnly) bdOnly.addEventListener('change', () => { this._bulkDeleteState.onlySelected = !!bdOnly.checked; this._settings.bulkOnlySelectedDefault = !!bdOnly.checked; this._saveSettings(); this._applyBulkDeleteFilter(); if (this._panel) this._render(this._panel); }, { signal });
         const bdFilter = el.querySelector('.nm-bd-filter');
         if (bdFilter) bdFilter.addEventListener('input', () => { this._bulkDeleteState.filterText = bdFilter.value; this._applyBulkDeleteFilter(); this._scheduleDebouncedRender(); }, { signal });
+        const bdPropName = el.querySelector('.nm-bd-prop-name');
+        if (bdPropName) {
+            bdPropName.addEventListener('change', () => {
+                this._bulkDeleteState.propertyFilterName = bdPropName.value || '';
+                if (!String(this._bulkDeleteState.propertyFilterName || '').trim()) {
+                    this._bulkDeleteState.propertyFilterText = '';
+                    this._bulkDeleteState.propertyFilterEmptyOnly = false;
+                }
+                this._applyBulkDeleteFilter();
+                if (this._panel) this._render(this._panel);
+            }, { signal });
+        }
+        const bdPropFilter = el.querySelector('.nm-bd-prop-filter');
+        if (bdPropFilter) {
+            bdPropFilter.addEventListener('input', () => {
+                this._bulkDeleteState.propertyFilterText = bdPropFilter.value;
+                this._applyBulkDeleteFilter();
+                this._scheduleDebouncedRender();
+            }, { signal });
+        }
+        const bdPropEmptyOnly = el.querySelector('.nm-bd-prop-empty-only');
+        if (bdPropEmptyOnly) {
+            bdPropEmptyOnly.addEventListener('change', () => {
+                this._bulkDeleteState.propertyFilterEmptyOnly = !!bdPropEmptyOnly.checked;
+                if (this._bulkDeleteState.propertyFilterEmptyOnly) this._bulkDeleteState.propertyFilterText = '';
+                this._applyBulkDeleteFilter();
+                if (this._panel) this._render(this._panel);
+            }, { signal });
+        }
         const bdSelectAllVisible = el.querySelector('.nm-bd-select-all-visible');
         if (bdSelectAllVisible instanceof HTMLInputElement) bdSelectAllVisible.indeterminate = bdSelectAllVisible.dataset.indeterminate === '1';
         const bdSubtreeAll = el.querySelector('.nm-bd-subtree-all');
@@ -6622,6 +6659,7 @@ ${this._shellFrameClose()}`;
             st.recordByGuid = new Map();
             st.childrenByParentGuid = new Map();
             st.filtered = [];
+            st.propertyFilterOptions = [];
             st.selectedGuids.clear();
             st.expandedGuids.clear();
             return;
@@ -6678,6 +6716,20 @@ ${this._shellFrameClose()}`;
                 .filter(r => r.hasChildren)
                 .map(r => ({ guid: r.guid, name: r.name }))
                 .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+            const propNames = new Set();
+            for (const row of st.records) {
+                try {
+                    for (const p of row.raw.getAllProperties?.() || []) {
+                        const n = String(p?.name ?? '').trim();
+                        if (n) propNames.add(n);
+                    }
+                } catch (_) {}
+            }
+            st.propertyFilterOptions = [...propNames].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+            if (st.propertyFilterName && !propNames.has(st.propertyFilterName)) {
+                st.propertyFilterName = '';
+                st.propertyFilterText = '';
+            }
             if (st.parentGuid && !st.parentOptions.some(p => p.guid === st.parentGuid)) {
                 st.parentGuid = '';
             }
@@ -6691,6 +6743,7 @@ ${this._shellFrameClose()}`;
             st.recordByGuid = new Map();
             st.childrenByParentGuid = new Map();
             st.parentOptions = [];
+            st.propertyFilterOptions = [];
             this._setStatus(`Error loading records: ${String(e?.message || e)}`);
         } finally {
             st.loading = false;
@@ -6704,11 +6757,77 @@ ${this._shellFrameClose()}`;
         st.filtered = st.records.filter(r => (!q || r.name.toLowerCase().includes(q)) && (!st.onlySelected || st.selectedGuids.has(r.guid)));
     }
 
+    /** Readable fragments from a PluginProperty for bulk-delete filtering (texts, values, choice selections). */
+    _bulkDeleteCollectPropertySearchParts(prop) {
+        const parts = [];
+        if (!prop) return parts;
+        try {
+            for (const v of this._getPropertyStringValues(prop)) {
+                const s = String(v ?? '').trim();
+                if (s) parts.push(s);
+            }
+        } catch (_) {}
+        try {
+            if (typeof prop.selectedChoiceLabels === 'function') {
+                for (const x of prop.selectedChoiceLabels() || []) {
+                    const s = String(x ?? '').trim();
+                    if (s) parts.push(s);
+                }
+            }
+        } catch (_) {}
+        try {
+            if (typeof prop.selectedChoices === 'function') {
+                for (const x of prop.selectedChoices() || []) {
+                    const s = String(x ?? '').trim();
+                    if (s) parts.push(s);
+                }
+            }
+        } catch (_) {}
+        return parts;
+    }
+
+    _bulkDeleteRecordPropertySearchText(recordRow, propName) {
+        const name = String(propName || '').trim();
+        if (!name || !recordRow?.raw) return '';
+        let prop = null;
+        try {
+            prop = this._resolvePluginProperty(recordRow.raw, name);
+        } catch (_) {
+            prop = null;
+        }
+        const parts = this._bulkDeleteCollectPropertySearchParts(prop);
+        return parts.join('\u0001').toLowerCase();
+    }
+
+    /** True when the property is missing or has no non-empty text / choice surface (bulk-delete filter). */
+    _bulkDeleteIsPropertySemanticallyEmpty(recordRow, propName) {
+        const name = String(propName || '').trim();
+        if (!name || !recordRow?.raw) return true;
+        let prop = null;
+        try {
+            prop = this._resolvePluginProperty(recordRow.raw, name);
+        } catch (_) {
+            prop = null;
+        }
+        if (!prop) return true;
+        return this._bulkDeleteCollectPropertySearchParts(prop).length === 0;
+    }
+
     _applyBulkDeleteFilter() {
         const st = this._bulkDeleteState;
         const q = (st.filterText || '').trim().toLowerCase();
+        const pfn = String(st.propertyFilterName || '').trim();
+        const pfq = (st.propertyFilterText || '').trim().toLowerCase();
         const baseMatch = (r) => {
             if (q && !r.name.toLowerCase().includes(q)) return false;
+            if (pfn) {
+                if (st.propertyFilterEmptyOnly) {
+                    if (!this._bulkDeleteIsPropertySemanticallyEmpty(r, pfn)) return false;
+                } else if (pfq) {
+                    const hay = this._bulkDeleteRecordPropertySearchText(r, pfn);
+                    if (!hay.includes(pfq)) return false;
+                }
+            }
             if (st.onlySelected && !st.selectedGuids.has(r.guid)) return false;
             if (st.subPageFilter === 'children-only' && !r.hasParent) return false;
             if (st.subPageFilter === 'root-only' && r.hasParent) return false;
@@ -6753,6 +6872,9 @@ ${this._shellFrameClose()}`;
     async _resetBulkDeleteForm() {
         const st = this._bulkDeleteState;
         st.filterText = '';
+        st.propertyFilterName = '';
+        st.propertyFilterText = '';
+        st.propertyFilterEmptyOnly = false;
         st.subPageFilter = 'all';
         st.parentGuid = '';
         st.onlySelected = !!this._settings.bulkOnlySelectedDefault;

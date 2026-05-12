@@ -4,8 +4,17 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Version
 
-- **Current version:** `1.0.15`
+- **Current version:** `1.0.17`
 - **Full per-release notes:** [changelog.md](./changelog.md) (detailed archive). Current behavior is also described under **Feature Overview** below.
+
+### What’s new in 1.0.17
+
+- **Bulk Delete — empty property values:** With a **Property** selected, **Empty only — no value / blank** matches notes where that property has no non-empty displayable value (for example an unset **Calendar**). **Property contains** is disabled while this mode is on.
+
+### What’s new in 1.0.16
+
+- **Bulk Delete — property filter:** **Property** dropdown (names from loaded notes) plus **Property contains** (case-insensitive substring over texts, values, and choice selections). Composes with title filter, sub-page filter, and **Show only selected**.
+- **Bulk Delete — TRASH confirmation:** Typing `TRASH` in the confirm modal no longer resets the caret each character (in-place enable/disable of **Move to Trash** instead of full panel re-render on each keystroke).
 
 ### What’s new in 1.0.15
 
@@ -140,6 +149,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - Source collection selector.
 - Sub-page relationship filter: **All notes**, **Only notes with parent**, **Only parent notes**, **Match selected parent**.
 - Parent-note selector appears when **Match selected parent** is chosen; dropdown includes only true parent notes and is sorted A-Z.
+- Optional **Property** filter: pick a column name (from `getAllProperties()` on notes in the source collection), then either **Property contains** (case-insensitive substring) or **Empty only — no value / blank** to match notes with no displayed value for that property (for example empty Calendar). **`(none)`** clears property filtering.
 - Title filter and optional **show only selected** mode.
 - Tree-aware list with per-row checkboxes and per-row **children** subtree checkbox (tri-state) for rows that have descendants.
 - In **All notes**, hierarchy is rendered fully expanded with indentation and path-preserving filter behavior.
@@ -148,7 +158,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - Scope pills show: `visible`, `selected parents`, `selected children`, and `total selected`.
 - Preview-first workflow, then **Move to Trash**.
 - Preview status shows **roots selected**, **descendants**, and **total records to trash**; preview log also includes a tree-style listing of root and child record titles selected.
-- Move to Trash opens an in-panel confirmation modal; large runs require typed confirmation (`TRASH`) inside that modal before apply.
+- Move to Trash opens an in-panel confirmation modal; large runs require typed confirmation (`TRASH`) inside that modal before apply (the typed field updates without resetting the text cursor each keystroke).
 - Failed root selections are retained after apply for quick retry.
 - Row-level result logging for moved-to-trash / failed records.
 - Refresh action updates **`nm-status`** and appends a **review log** line.
@@ -265,6 +275,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
   - Confirm required inputs are set (source/target, parent note, current/new tag, or source tag).
   - Clear filters that may hide rows (`Filter`, `Show only selected`, `Hide child of:`).
   - In **Delete Notes**, if **Sub-page filter** is set to **Match selected parent**, choose a parent in the **Parent note** dropdown; otherwise no rows are shown.
+  - In **Delete Notes**, to match an **empty** custom property (for example **Calendar**): pick **Property**, enable **Empty only — no value / blank**. Leaving **Property contains** blank **without** **Empty only** does not apply any property filter.
 
 - **Apply appears to do nothing**
   - Run **Preview** first and confirm rows are included.
