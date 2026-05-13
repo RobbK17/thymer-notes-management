@@ -4,7 +4,21 @@ This file holds the **full** per-release notes that previously lived under **Ver
 
 ---
 
-- **Current version:** `1.0.17`
+- **Current version:** `1.0.18`
+
+### What’s new in 1.0.18
+
+**Bulk Delete — sub-page filter UX and labels**
+
+- **Sub-page filter** option order is now: **All notes** → **Only root notes (w or w/o children)** → **Match selected note** → **Only notes with parent** (internal filter values unchanged).
+- The former **Only parent notes** row is relabeled **Only root notes (w or w/o children)** (same meaning: notes with no parent sub-page, whether or not they have children).
+- **Match selected parent** is shown in the UI as **Match selected note**; behavior is unchanged (pick a parent that has children in the collection).
+- **Parent note** when **Match selected note** is active: if no note in the collection has children, the placeholder reads **No parent to match in collection** and the control is disabled (replacing **Select parent…** in that case).
+- **Parent note** when **Only notes with parent** is active: if no loaded note has a parent, the **Parent note** row is shown with placeholder **No parent note(s)** and the control is disabled so the empty case is explicit.
+
+**Bulk Delete — Property contains focus**
+
+- **Property contains** keeps keyboard focus and caret position across debounced re-renders while typing (same focus-restore path as the title filter).
 
 ### What’s new in 1.0.17
 

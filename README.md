@@ -4,8 +4,13 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 
 ## Version
 
-- **Current version:** `1.0.17`
+- **Current version:** `1.0.18`
 - **Full per-release notes:** [changelog.md](./changelog.md) (detailed archive). Current behavior is also described under **Feature Overview** below.
+
+### What’s new in 1.0.18
+
+- **Bulk Delete — sub-page filter:** Options reordered; **Only root notes (w or w/o children)** and **Match selected note** labels; **Parent note** placeholders **No parent to match in collection** / **No parent note(s)** when there is nothing to pick in the matching mode.
+- **Bulk Delete — Property contains** keeps focus while typing across debounced list updates.
 
 ### What’s new in 1.0.17
 
@@ -147,8 +152,8 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 ### Delete Notes
 
 - Source collection selector.
-- Sub-page relationship filter: **All notes**, **Only notes with parent**, **Only parent notes**, **Match selected parent**.
-- Parent-note selector appears when **Match selected parent** is chosen; dropdown includes only true parent notes and is sorted A-Z.
+- Sub-page relationship filter: **All notes**, **Only root notes (w or w/o children)**, **Match selected note**, **Only notes with parent** (in that order in the UI).
+- **Parent note** appears when **Match selected note** is chosen (notes that have children; sorted A–Z). If none qualify, the control shows **No parent to match in collection** and is disabled. When **Only notes with parent** is chosen and no note has a parent, the row shows **No parent note(s)** and is disabled.
 - Optional **Property** filter: pick a column name (from `getAllProperties()` on notes in the source collection), then either **Property contains** (case-insensitive substring) or **Empty only — no value** to match notes with no displayed value for that property (for example empty Calendar). **`(none)`** clears property filtering.
 - Title filter and optional **show only selected** mode.
 - Tree-aware list with per-row checkboxes and per-row **children** subtree checkbox (tri-state) for rows that have descendants.
@@ -274,7 +279,7 @@ Unified Thymer custom panel for bulk note operations and advanced tag workflows.
 - **Preview shows no rows**
   - Confirm required inputs are set (source/target, parent note, current/new tag, or source tag).
   - Clear filters that may hide rows (`Filter`, `Show only selected`, `Hide child of:`).
-  - In **Delete Notes**, if **Sub-page filter** is set to **Match selected parent**, choose a parent in the **Parent note** dropdown; otherwise no rows are shown.
+  - In **Delete Notes**, if **Sub-page filter** is set to **Match selected note**, choose a parent in the **Parent note** dropdown when options exist; if the collection has no parent rows to match, the control explains that and no rows match until you change filter or collection.
   - In **Delete Notes**, to match an **empty** custom property (for example **Calendar**): pick **Property**, enable **Empty only — no value**. Leaving **Property contains** blank **without** **Empty only** does not apply any property filter.
 
 - **Apply appears to do nothing**

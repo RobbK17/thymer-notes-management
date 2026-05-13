@@ -1,7 +1,7 @@
 {
   "id": "thymer-notes-management",
   "name": "Notes Management",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Move or delete notes in bulk, assign subpages, tag rename, tag review, tag analyzer, and Tag merge (consolidation plan) from a native Thymer panel.",
   "main": "notes-manager-plugin.js"
 }
